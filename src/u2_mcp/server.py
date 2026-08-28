@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from .config import U2Config
 from .connection import ConnectionError, ConnectionManager
 from .credentials import create_credential_resolver
+from .exposure import check_network_exposure
 from .identity import CallerIdentity, caller_from_stored_token, set_identity_resolver
 from .registry import ConnectionRegistry
 from .utils.audit import audit_tool_call, get_audit_logger, init_audit_logger
@@ -342,6 +343,9 @@ def run_sse_server() -> None:
 
     config = U2Config()
 
+    # Refuse an unsafe exposure before the port is opened, not on first request.
+    check_network_exposure(config, transport="sse")
+
     # Initialize audit logging if enabled
     _init_audit_logging(config)
     _wrap_tools_with_audit(mcp)
@@ -390,6 +394,9 @@ def run_streamable_http_server() -> None:
     from .auth.storage import create_auth_storage
 
     config = U2Config()
+
+    # Refuse an unsafe exposure before the port is opened, not on first request.
+    check_network_exposure(config, transport="streamable-http")
 
     # Initialize audit logging if enabled
     _init_audit_logging(config)

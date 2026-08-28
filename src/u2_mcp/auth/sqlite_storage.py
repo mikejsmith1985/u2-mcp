@@ -37,6 +37,11 @@ from .storage import (
 
 logger = logging.getLogger(__name__)
 
+# Claim statements for single-use secrets. Written out in full rather than
+# composed at runtime, so no table or column name is ever interpolated.
+_CLAIM_AUTH_CODE = "DELETE FROM auth_codes WHERE code_hash = ? RETURNING payload"
+_CLAIM_PENDING_AUTH = "DELETE FROM pending_auth WHERE state_hash = ? RETURNING payload"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
     client_id     TEXT PRIMARY KEY,
@@ -119,7 +124,7 @@ class SQLiteAuthStorage:
             row: sqlite3.Row | None = self._connection.execute(sql, parameters).fetchone()
             return row
 
-    def _claim_one(self, table: str, key_column: str, key_hash: str) -> sqlite3.Row | None:
+    def _claim_one(self, statement: str, key_hash: str) -> sqlite3.Row | None:
         """Read a single-use row and delete it in one indivisible step.
 
         Reading and then deleting as two operations leaves a window in which two
@@ -127,19 +132,18 @@ class SQLiteAuthStorage:
         authorization code be exchanged twice. `DELETE ... RETURNING` makes the
         claim atomic; the lock additionally serializes writers on this connection.
 
+        The statement is one of the module's own constants rather than a composed
+        string, so no table or column name is ever built at runtime.
+
         Args:
-            table: Table holding single-use rows
-            key_column: Hashed-key column to match on
+            statement: A claim statement from this module
             key_hash: The hashed key to claim
 
         Returns:
             The claimed row, or None if another caller claimed it first
         """
         with self._lock:
-            cursor = self._connection.execute(
-                f"DELETE FROM {table} WHERE {key_column} = ? RETURNING payload",  # noqa: S608
-                (key_hash,),
-            )
+            cursor = self._connection.execute(statement, (key_hash,))
             row: sqlite3.Row | None = cursor.fetchone()
             self._connection.commit()
             return row
@@ -210,7 +214,7 @@ class SQLiteAuthStorage:
 
     def get_auth_code(self, code: str) -> StoredAuthCode | None:
         """Retrieve and consume an authorization code (one-time use)."""
-        row = self._claim_one("auth_codes", "code_hash", hash_secret(code))
+        row = self._claim_one(_CLAIM_AUTH_CODE, hash_secret(code))
         if row is None:
             return None
         stored = StoredAuthCode(**json.loads(row["payload"]))
@@ -303,7 +307,7 @@ class SQLiteAuthStorage:
 
     def get_pending_auth(self, state: str) -> PendingAuthorization | None:
         """Retrieve and consume pending authorization state (one-time use)."""
-        row = self._claim_one("pending_auth", "state_hash", hash_secret(state))
+        row = self._claim_one(_CLAIM_PENDING_AUTH, hash_secret(state))
         if row is None:
             return None
         stored = PendingAuthorization(**json.loads(row["payload"]))

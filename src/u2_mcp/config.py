@@ -92,19 +92,36 @@ class U2Config(BaseSettings):
 
     # HTTP Server settings (for centralized deployment)
     http_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         alias="U2_HTTP_HOST",
-        description="Host to bind HTTP server to",
+        description=(
+            "Host to bind the HTTP server to. Defaults to loopback: the SSE transport "
+            "performs no authentication, so binding a reachable interface exposes every "
+            "tool. Set 0.0.0.0 deliberately for a container or a proxied deployment."
+        ),
     )
     http_port: int = Field(
         default=8080,
         alias="U2_HTTP_PORT",
         description="Port for HTTP server",
     )
+    allow_unauthenticated_network_access: bool = Field(
+        default=False,
+        alias="U2_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS",
+        description=(
+            "Permit an unauthenticated server to listen on a reachable interface. "
+            "Off by default; the server refuses that combination unless this is set."
+        ),
+    )
     http_cors_origins_str: str = Field(
-        default="*",
+        default="",
         alias="U2_HTTP_CORS_ORIGINS",
-        description="Comma-separated list of allowed CORS origins, or * for all",
+        description=(
+            "Comma-separated list of browser origins allowed to connect. Empty by "
+            "default, which blocks cross-origin browser access; non-browser MCP "
+            "clients are unaffected. '*' is refused because this server sends "
+            "credentials."
+        ),
     )
 
     # OAuth/Authentication settings (for Claude.ai Integrations)

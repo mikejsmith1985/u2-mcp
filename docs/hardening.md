@@ -334,4 +334,59 @@ plaintext passwords on disk with no alternative. An entry may now name an
 environment variable with `password_env` instead, so the password can come from a
 vault or a systemd credential, and error messages never echo the map's contents.
 
+## Finding 9 — the HTTP transport served an unauthenticated database to the network
+
+**Where:** `server.py::run_sse_server()` and the `U2_HTTP_HOST` default
+
+This was found by following up a static-analysis warning about binding to all
+interfaces, and it is the most serious defect in the codebase.
+
+**What happened:** the legacy `--http` (SSE) transport performs no authentication
+of any kind. There is no provider, no token check, no identity — it simply serves
+every registered tool. Upstream defaulted its bind address to `0.0.0.0` and its
+CORS policy to `*` with `allow_credentials` set.
+
+**What it cost:** running `u2-mcp --http` on a server with no further
+configuration exposes `write_record`, `delete_record` and `execute_tcl` to anyone
+who can reach the port. Read-only mode is off by default, so that includes
+writing and deleting records. The wildcard CORS policy compounds it: because the
+server sends credentials, any web page a signed-in user visited could drive the
+server from their browser.
+
+**The fix:** three changes, all failing closed.
+
+- `U2_HTTP_HOST` now defaults to `127.0.0.1`. A container or proxied deployment
+  sets `0.0.0.0` deliberately, which is the case where someone is thinking about
+  exposure.
+- `U2_HTTP_CORS_ORIGINS` now defaults to empty rather than `*`, blocking
+  cross-origin browser access until an operator names an origin. Non-browser MCP
+  clients are unaffected. A literal `*` is refused outright, because it cannot be
+  combined safely with credentials.
+- `exposure.py` checks both **before the port opens**, not on the first request.
+  An unauthenticated server on a reachable interface is refused with an error
+  naming the three ways forward, one of which is
+  `U2_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true` for an operator who means it.
+
+These are the only changes in this fork that alter existing behaviour. That is
+deliberate: a default that quietly exposes a production database is not a default
+worth preserving.
+
+**Proof:** `tests/test_network_exposure.py` — 20 tests covering loopback
+detection, the safe defaults, the refusal and its wording, the explicit override,
+and stdio being unaffected.
+
+## Continuous assurance
+
+A one-off audit describes the day it was run. The CI pipeline now fails the build
+on either of two conditions, so the assurance renews itself:
+
+- `bandit -r src/ --severity-level medium --confidence-level medium` — currently
+  clean, with the two findings it raised both resolved rather than suppressed.
+  The composed `DELETE ... RETURNING` statement was rewritten as module constants
+  so no table name is built at runtime, and the bind-address finding became
+  Finding 9.
+- `pip-audit` — currently reports no known vulnerabilities in the dependency tree.
+
+Both run before the build job, which now depends on them.
+
 ## Still to come

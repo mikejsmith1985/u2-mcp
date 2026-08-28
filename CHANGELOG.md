@@ -11,6 +11,21 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Security
 
+- **The HTTP transport no longer serves an unauthenticated database to the
+  network.** The legacy `--http` (SSE) transport performs no authentication at
+  all, and defaulted to binding every interface with `U2_HTTP_CORS_ORIGINS='*'`
+  and credentials enabled — so `u2-mcp --http` exposed `write_record`,
+  `delete_record` and `execute_tcl` to anyone who could reach the port.
+  `U2_HTTP_HOST` now defaults to `127.0.0.1`, `U2_HTTP_CORS_ORIGINS` defaults to
+  empty (a literal `*` is refused), and the server refuses to start when
+  unauthenticated on a reachable interface unless
+  `U2_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true` is set deliberately. **These are
+  the only behaviour-changing defaults in this fork.**
+
+- **CI now fails on security findings.** `bandit` (medium severity and above) and
+  `pip-audit` run before the build job, so the assurance renews itself rather
+  than describing the day it was run.
+
 - **Authorization codes can no longer be replayed** (defect introduced by this
   fork's own durable-storage change). Consuming a one-time code was a `SELECT`
   followed by a separate `DELETE`, replacing an atomic `dict.pop()`. Racing forty
