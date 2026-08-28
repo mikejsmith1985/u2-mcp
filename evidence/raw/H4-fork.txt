@@ -1,8 +1,9 @@
 ============================= test session starts =============================
 platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
 rootdir: C:\ProjectsWin\u2-mcp
 configfile: pyproject.toml
-plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
 collecting ... collected 4 items
 
@@ -11,4 +12,4 @@ tests/test_connection.py::TestQueryTimeouts::test_timeout_tears_down_the_session
 tests/test_connection.py::TestQueryTimeouts::test_next_request_after_a_timeout_still_works PASSED [ 75%]
 tests/test_connection.py::TestQueryTimeouts::test_abandoned_queries_are_counted PASSED [100%]
 
-============================== 4 passed in 0.66s ==============================
+============================== 4 passed in 0.97s ==============================

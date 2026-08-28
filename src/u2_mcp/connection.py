@@ -6,21 +6,31 @@ import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 # Workaround for uopy bug on macOS - TCP_KEEPIDLE doesn't exist on macOS
 if not hasattr(socket, "TCP_KEEPIDLE"):
     socket.TCP_KEEPIDLE = socket.TCP_KEEPALIVE  # type: ignore[attr-defined]
 
-import uopy
-
 from .config import U2Config
 from .credentials import U2Credentials
+from .driver import get_driver
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _uopy() -> ModuleType:
+    """Return the configured driver.
+
+    Resolved per call rather than captured at import time, so configuration can
+    change between tests without the module needing to be reloaded.
+    """
+    return get_driver()
+
 
 # MultiValue delimiters, named so the sanitizer reads as intent rather than magic numbers.
 AM = chr(254)  # Attribute mark - separates fields
@@ -133,7 +143,7 @@ class ConnectionManager:
                 f"as {self._credentials.user}"
             )
 
-            self._session = uopy.connect(
+            self._session = _uopy().connect(
                 host=self._config.host,
                 user=self._credentials.user,
                 password=self._credentials.password,
@@ -154,7 +164,7 @@ class ConnectionManager:
             logger.info(f"Connected successfully to {self._credentials.account}")
             return info
 
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Connection failed: {e}")
             raise ConnectionError(f"Failed to connect to {self._config.host}: {e}") from e
 
@@ -187,7 +197,7 @@ class ConnectionManager:
             logger.info(f"Disconnected connection '{name}'")
             return True
 
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.warning(f"Error during disconnect: {e}")
             return False
 
@@ -261,7 +271,7 @@ class ConnectionManager:
         session = self._session
         try:
             is_alive = session is not None and bool(session.is_active)
-        except (uopy.UOError, AttributeError):
+        except (_uopy().UOError, AttributeError):
             is_alive = False
 
         if not is_alive:
@@ -283,7 +293,7 @@ class ConnectionManager:
             file_name: Name of the file to open
 
         Returns:
-            uopy.File object
+            _uopy().File object
 
         Raises:
             FileNotFoundError: If file cannot be opened
@@ -294,10 +304,10 @@ class ConnectionManager:
 
         session = self.get_session()
         try:
-            file_handle = uopy.File(file_name, session=session)
+            file_handle = _uopy().File(file_name, session=session)
             self._open_files[file_name] = file_handle
             return file_handle
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             raise FileNotFoundError(f"Cannot open file '{file_name}': {e}") from e
 
     def close_file(self, file_name: str) -> bool:
@@ -376,7 +386,7 @@ class ConnectionManager:
 
         def run_command() -> None:
             try:
-                cmd = uopy.Command(command_text, session=session)
+                cmd = _uopy().Command(command_text, session=session)
                 cmd.run()
                 result["response"] = str(cmd.response) if cmd.response else ""
             except Exception as e:
@@ -456,10 +466,10 @@ class ConnectionManager:
         """Create a new select list object.
 
         Returns:
-            uopy.List object for select operations
+            _uopy().List object for select operations
         """
         session = self.get_session()
-        return uopy.List(session=session)
+        return _uopy().List(session=session)
 
     def health_check(self) -> bool:
         """Perform a quick health check on the connection.
@@ -474,7 +484,7 @@ class ConnectionManager:
 
         try:
             # Use a minimal command that should return quickly
-            cmd = uopy.Command("WHO", session=self._session)
+            cmd = _uopy().Command("WHO", session=self._session)
             cmd.run()
             return True
         except Exception as e:
@@ -525,7 +535,7 @@ class ConnectionManager:
             self._transaction.started_at = datetime.now()
             logger.info("Transaction started")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to start transaction: {e}")
             raise
 
@@ -547,7 +557,7 @@ class ConnectionManager:
             self._transaction = TransactionState()
             logger.info("Transaction committed")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to commit transaction: {e}")
             raise
 
@@ -569,6 +579,6 @@ class ConnectionManager:
             self._transaction = TransactionState()
             logger.info("Transaction rolled back")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to rollback transaction: {e}")
             raise

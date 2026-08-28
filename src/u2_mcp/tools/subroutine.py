@@ -3,8 +3,7 @@
 import logging
 from typing import Any
 
-import uopy
-
+from ..driver import get_driver
 from ..server import get_connection_manager, mcp
 
 logger = logging.getLogger(__name__)
@@ -55,7 +54,7 @@ def call_subroutine(
         session = manager.get_session()
 
         # Create subroutine object with specified number of arguments
-        sub = uopy.Subroutine(name, actual_num_args, session=session)
+        sub = get_driver().Subroutine(name, actual_num_args, session=session)
 
         # Set input arguments
         for i, arg in enumerate(args):

@@ -1,8 +1,9 @@
 ============================= test session starts =============================
 platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
 rootdir: C:\ProjectsWin\u2-mcp
 configfile: pyproject.toml
-plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
 collecting ... collected 20 items
 
@@ -27,4 +28,4 @@ tests/test_identity.py::TestMappedCredentials::test_missing_map_is_refused_at_st
 tests/test_identity.py::TestResolverSelection::test_shared_is_the_default PASSED [ 95%]
 tests/test_identity.py::TestResolverSelection::test_unknown_mode_is_refused PASSED [100%]
 
-============================= 20 passed in 0.12s ==============================
+============================= 20 passed in 0.44s ==============================

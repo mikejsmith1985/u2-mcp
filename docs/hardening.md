@@ -544,6 +544,25 @@ sign-in rather than at startup.
 `warn_unused_ignores` and `warn_redundant_casts` added and the two stale
 `type: ignore` comments removed. Nothing is suppressed to achieve it.
 
+## A seam for evaluating this server without a database
+
+Licensing means most people who might assess this server have no Universe
+instance to point it at, and none can be redistributed. `U2_DRIVER` names the
+library the server talks to the database through: `uopy` by default, or any
+module providing the same surface.
+
+Three things keep the seam from becoming a liability:
+
+- **The default is unchanged and asserted.** With nothing configured the server
+  loads `uopy`, and a test says so, because a seam added for evaluation is worth
+  nothing if it alters production behaviour.
+- **A replacement is checked at load, not at first use.** A driver missing any of
+  the six names this server calls is refused at startup. A driver that loads and
+  then fails mid-request is far harder to diagnose.
+- **A replacement announces itself.** Running against anything other than a
+  database logs a warning at startup, so nobody reading a log later mistakes the
+  figures for production data.
+
 ## Still to come
 
 

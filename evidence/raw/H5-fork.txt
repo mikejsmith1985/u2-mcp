@@ -1,8 +1,9 @@
 ============================= test session starts =============================
 platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
 rootdir: C:\ProjectsWin\u2-mcp
 configfile: pyproject.toml
-plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
 collecting ... collected 3 items
 
@@ -10,4 +11,4 @@ tests/test_auth/test_storage.py::TestDurability::test_tokens_survive_a_restart P
 tests/test_auth/test_storage.py::TestDurability::test_raw_tokens_are_never_written_to_disk PASSED [ 66%]
 tests/test_auth/test_storage.py::TestDurability::test_expired_entries_are_purged_from_disk PASSED [100%]
 
-============================== 3 passed in 0.46s ==============================
+============================== 3 passed in 0.83s ==============================

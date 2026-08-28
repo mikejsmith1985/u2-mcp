@@ -16,8 +16,8 @@ tests/test_tools/test_query.py::TestResultCompleteness::test_complete_select_lis
 ================================== FAILURES ===================================
 _______ TestResultCompleteness.test_sampled_query_is_marked_incomplete ________
 
-self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000002C13E510D10>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002C13E511E50>
+self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000001C222340EC0>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001C222572270>
 
     def test_sampled_query_is_marked_incomplete(
         self, connection_manager: ConnectionManager
@@ -32,8 +32,8 @@ E       KeyError: 'is_complete'
 tests\test_tools\test_query.py:60: KeyError
 ____ TestResultCompleteness.test_sampled_query_explains_the_limit_in_words ____
 
-self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000002C13E510EC0>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002C13E5139E0>
+self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000001C222570980>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001C2225738F0>
 
     def test_sampled_query_explains_the_limit_in_words(
         self, connection_manager: ConnectionManager
@@ -48,8 +48,8 @@ E       KeyError: 'warning'
 tests\test_tools\test_query.py:68: KeyError
 ______ TestResultCompleteness.test_count_query_is_not_marked_incomplete _______
 
-self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000002C13E49B170>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002C13E58B500>
+self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000001C2224771D0>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001C2225EB950>
 
     def test_count_query_is_not_marked_incomplete(
         self, connection_manager: ConnectionManager
@@ -64,9 +64,9 @@ E       KeyError: 'is_complete'
 tests\test_tools\test_query.py:76: KeyError
 _________ TestResultCompleteness.test_select_list_reports_truncation __________
 
-self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000002C13E5101D0>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002C13E513830>
-mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x000002C13E513F20>
+self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000001C222571250>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001C222573830>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x000001C222572810>
 
     def test_select_list_reports_truncation(
         self, connection_manager: ConnectionManager, mock_uopy: MockSession
@@ -84,9 +84,9 @@ E       KeyError: 'is_complete'
 tests\test_tools\test_query.py:95: KeyError
 _____ TestResultCompleteness.test_complete_select_list_is_marked_complete _____
 
-self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000002C13E5114F0>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002C13E512C90>
-mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x000002C13E512CF0>
+self = <tests.test_tools.test_query.TestResultCompleteness object at 0x000001C222571850>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001C222572F00>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x000001C222572E40>
 
     def test_complete_select_list_is_marked_complete(
         self, connection_manager: ConnectionManager, mock_uopy: MockSession
@@ -108,4 +108,4 @@ FAILED tests/test_tools/test_query.py::TestResultCompleteness::test_sampled_quer
 FAILED tests/test_tools/test_query.py::TestResultCompleteness::test_count_query_is_not_marked_incomplete
 FAILED tests/test_tools/test_query.py::TestResultCompleteness::test_select_list_reports_truncation
 FAILED tests/test_tools/test_query.py::TestResultCompleteness::test_complete_select_list_is_marked_complete
-========================= 5 failed, 1 passed in 0.55s =========================
+========================= 5 failed, 1 passed in 0.65s =========================

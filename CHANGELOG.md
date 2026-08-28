@@ -114,6 +114,14 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Added
 
+- **`U2_DRIVER` names the database library**, so this server can be evaluated
+  without a Universe instance — which licensing puts out of reach for most people
+  who might assess it. The default remains `uopy` and a test asserts it; a
+  replacement must provide all six names the server calls or it is refused at
+  startup rather than failing mid-request; and running against anything but a
+  database logs a warning, so nobody later mistakes the figures for production
+  data.
+
 - **Durable OAuth state** **[proven]**
   Registrations, tokens and in-flight logins lived only in process memory, so a
   restart signed everyone out and a second instance could not recognise the
