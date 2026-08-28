@@ -10,4 +10,4 @@ tests/test_auth/test_storage.py::TestDurability::test_tokens_survive_a_restart P
 tests/test_auth/test_storage.py::TestDurability::test_raw_tokens_are_never_written_to_disk PASSED [ 66%]
 tests/test_auth/test_storage.py::TestDurability::test_expired_entries_are_purged_from_disk PASSED [100%]
 
-============================== 3 passed in 0.44s ==============================
+============================== 3 passed in 0.46s ==============================

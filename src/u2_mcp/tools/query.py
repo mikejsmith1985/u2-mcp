@@ -1,12 +1,16 @@
 """Query execution tools for u2-mcp."""
 
 import logging
+import re
 from typing import Any
 
 from ..server import get_connection_manager, mcp
 from ..utils.safety import ALLOWED_QUERY_COMMANDS, CommandValidator
 
 logger = logging.getLogger(__name__)
+
+# A real SAMPLE clause is the word followed by a count, not the word in a name.
+_HAS_SAMPLE_CLAUSE = re.compile(r"\bSAMPLE\s+\d+")
 
 
 @mcp.tool()
@@ -43,10 +47,15 @@ def execute_query(query: str, max_rows: int | None = None) -> dict[str, Any]:
     effective_max = min(max_rows or config.max_records, config.max_records)
 
     try:
-        # Add SAMPLE clause for LIST commands to limit results
+        # Add SAMPLE clause for LIST commands to limit results. The test is for an
+        # actual SAMPLE clause, not the word anywhere in the text: a file called
+        # SAMPLES or a field called SAMPLE.DATE would otherwise silently remove
+        # the row cap while the answer still claimed to be complete.
         query_upper = query.upper().strip()
         modified_query = query
-        was_limit_injected = query_upper.startswith("LIST") and "SAMPLE" not in query_upper
+        was_limit_injected = query_upper.startswith("LIST") and not _HAS_SAMPLE_CLAUSE.search(
+            query_upper
+        )
         if was_limit_injected:
             modified_query = f"{query} SAMPLE {effective_max}"
 

@@ -1,20 +1,97 @@
-"""Command validation and safety controls for u2-mcp."""
+"""Command validation and safety controls for u2-mcp.
 
-# Default blocklist of dangerous TCL commands
-DEFAULT_BLOCKED_COMMANDS: set[str] = {
+The validator is the only thing between a model-generated string and a
+production database, so it is treated as a security boundary rather than a
+convenience. Two principles govern it:
+
+* **Queries use an allowlist.** Only read verbs are accepted, so a verb nobody
+  anticipated is refused rather than permitted.
+* **TCL uses a blocklist, so the blocklist must cover the escapes.** TCL can
+  reach the operating system, switch accounts, and compile and run code. A list
+  naming only the obviously destructive file verbs leaves the host exposed, so
+  every escape route is enumerated below with the reason it is there.
+"""
+
+# Commands that leave the database and reach the operating system, another
+# account, or the compiler. Any one of these turns database access into control
+# of the host, so they are blocked even when write operations are permitted.
+ESCAPE_COMMANDS: set[str] = {
+    # Shell and operating-system escapes
+    "SH",
+    "SHELL",
+    "DOS",
+    "OSDELETE",
+    "OSWRITE",
+    "OSREAD",
+    "OSCOPY",
+    "OSBREAD",
+    "OSBWRITE",
+    "OSOPEN",
+    "OSEXECUTE",
+    # Compiling or running arbitrary code
+    "RUN",
+    "BASIC",
+    "CATALOG",
+    "COMPILE",
+    "PHANTOM",
+    "EXECUTE",
+    # Leaving the configured account, which escapes every other control here
+    "LOGTO",
+    "LOGIN",
+    "LOGOUT",
+    # Environment and system state
+    "SETPTR",
+    "CLEAR.LOCKS",
+    "CLEARLOCKS",
+    "SUPERCLEAR",
+    "UNLOCK",
+    "SET.SQL",
+    "CONFIGURE",
+}
+
+# SQL verbs that Universe also accepts. The query allowlist already excludes
+# them; TCL would not, without naming them here.
+DESTRUCTIVE_SQL_COMMANDS: set[str] = {
+    "DROP",
+    "ALTER",
+    "TRUNCATE",
+    "GRANT",
+    "REVOKE",
+    "INSERT",
+    "UPDATE",
+    "CREATE",
+    "MERGE",
+}
+
+# Commands that destroy or restructure files.
+DESTRUCTIVE_FILE_COMMANDS: set[str] = {
     "DELETE.FILE",
     "DELETE-FILE",
     "CLEAR.FILE",
     "CLEAR-FILE",
+    "CLEARFILE",
+    "CLEARDATA",
     "CNAME",
     "CREATE.FILE",
     "CREATE-FILE",
-    "ED",
-    "SED",
-    "AE",
+    "RESIZE",
     "ACCOUNT.RESTORE",
+    "ACCOUNT.SAVE",
     "T.LOAD",
+    "T.DUMP",
 }
+
+# Interactive editors, which expect a terminal this server does not have and can
+# rewrite any record they open.
+EDITOR_COMMANDS: set[str] = {"ED", "SED", "AE", "XED", "EDIT"}
+
+# The full default blocklist.
+DEFAULT_BLOCKED_COMMANDS: set[str] = (
+    ESCAPE_COMMANDS | DESTRUCTIVE_SQL_COMMANDS | DESTRUCTIVE_FILE_COMMANDS | EDITOR_COMMANDS
+)
+
+# Characters that begin a shell escape rather than a command word.
+ESCAPE_PREFIXES: tuple[str, ...] = ("!", "$", "|", "`", ">", "<", "&", ";")
 
 # Commands that modify data (blocked in read-only mode)
 WRITE_COMMANDS: set[str] = {
@@ -58,6 +135,28 @@ class CommandValidator:
         self._blocked.update(DEFAULT_BLOCKED_COMMANDS)
         self._read_only = read_only
 
+    @staticmethod
+    def _first_word(command: str) -> str:
+        """Return the leading verb of a command, normalized for comparison.
+
+        Leading whitespace and case must not change a verdict, and a command
+        beginning with a shell metacharacter has no verb at all -- `!ls` is a
+        shell escape whose first word would otherwise read as the harmless-looking
+        token `!LS`.
+
+        Args:
+            command: The raw command string
+
+        Returns:
+            The upper-case leading word, or the escape character itself
+        """
+        stripped = command.strip()
+        if not stripped:
+            return ""
+        if stripped.startswith(ESCAPE_PREFIXES):
+            return stripped[0]
+        return stripped.split()[0].upper()
+
     def validate(self, command: str) -> tuple[bool, str]:
         """Validate a TCL command.
 
@@ -70,14 +169,25 @@ class CommandValidator:
         if not command or not command.strip():
             return False, "Command cannot be empty"
 
-        cmd_upper = command.upper().strip()
-        first_word = cmd_upper.split()[0] if cmd_upper else ""
+        first_word = self._first_word(command)
 
-        # Check blocklist
+        if first_word in ESCAPE_PREFIXES:
+            return (
+                False,
+                f"Commands beginning with '{first_word}' are blocked: they escape to the "
+                "operating system rather than running a database command",
+            )
+
+        if first_word in ESCAPE_COMMANDS:
+            return (
+                False,
+                f"Command '{first_word}' is blocked: it can reach the operating system, "
+                "another account, or the compiler",
+            )
+
         if first_word in self._blocked:
             return False, f"Command '{first_word}' is blocked for safety"
 
-        # Check read-only mode
         if self._read_only and first_word in WRITE_COMMANDS:
             return False, f"Command '{first_word}' not allowed in read-only mode"
 
@@ -97,10 +207,8 @@ class CommandValidator:
         if not query or not query.strip():
             return False, "Query cannot be empty"
 
-        query_upper = query.upper().strip()
-        first_word = query_upper.split()[0] if query_upper else ""
+        first_word = self._first_word(query)
 
-        # Only allow read operations in queries
         if first_word not in ALLOWED_QUERY_COMMANDS:
             allowed_list = ", ".join(sorted(ALLOWED_QUERY_COMMANDS))
             return False, f"Query command '{first_word}' not allowed. Allowed: {allowed_list}"

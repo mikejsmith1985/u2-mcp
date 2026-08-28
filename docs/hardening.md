@@ -389,4 +389,77 @@ on either of two conditions, so the assurance renews itself:
 
 Both run before the build job, which now depends on them.
 
+## Finding 10 — TCL could escape to the operating system
+
+**Where:** `utils/safety.py::DEFAULT_BLOCKED_COMMANDS`
+
+This is not an edge case. `execute_tcl` is a first-class tool the model calls
+routinely, and the blocklist named nine destructive file verbs while omitting
+every escape route out of the database.
+
+**What it cost:** `SH -c '...'` and `!ls` reach a shell on the database server.
+`OSDELETE`, `OSWRITE` and `OSREAD` reach its filesystem. `RUN`, `BASIC` and
+`CATALOG` compile and execute arbitrary code. `LOGTO` leaves the configured
+account, escaping every other control in the server. The SQL verbs Universe also
+accepts -- `DROP`, `GRANT`, `UPDATE` -- were likewise absent. In short, one tool
+call away from remote code execution, in the default configuration.
+
+The blocklist was also evadable by formatting. `!ls` produced a first word of
+`!LS`, which matched nothing, so the shell escape passed even when the verb was
+listed.
+
+**The fix:** the blocklist now enumerates every escape route by category --
+shell and OS access, code compilation and execution, account switching, system
+state -- with the reason each is there. A leading shell metacharacter is treated
+as an escape rather than parsed as a verb, and verdicts are unaffected by case or
+leading whitespace.
+
+**Proof:** `tests/edge/test_adversarial_input.py` — 59 tests, each escape verb
+asserted twice: refused by the validator, and never reaching the server.
+
+## Finding 11 — the row cap could be removed by a file name
+
+**Where:** `tools/query.py::execute_query`
+
+The cap was skipped whenever the text `SAMPLE` appeared anywhere in the query, so
+a file called `SAMPLES` or a field called `SAMPLE.DATE` silently removed the row
+limit — and, after Finding 3, the answer then claimed to be complete. The test is
+now for an actual `SAMPLE n` clause.
+
+## Finding 12 — saved knowledge could forge other topics
+
+**Where:** `utils/knowledge.py`
+
+Content is written verbatim beneath its markdown header, so a line beginning with
+`##` created a new section — letting saved content invent a topic nobody wrote or
+overwrite one that existed. A topic name containing a line break did the same.
+Names are collapsed to one line and header lines in content are escaped.
+
+## Finding 13 — a reconnect storm opened one session per caller
+
+**Where:** `ConnectionManager.get_session()`
+
+Nothing serialized establishing a session, so a burst of requests arriving to find
+none open would each create one. Twenty concurrent callers opened twenty database
+connections for a single slot: a connection leak invisible until the server runs
+out.
+
+As with the authorization-code race, a naive concurrency test passed while the
+bug was present. Holding the window open made it deterministic. Session
+establishment is now serialized separately from command execution, so a burst
+opens exactly one.
+
+## Finding 14 — the audit log corrupted itself under load
+
+**Where:** `utils/audit.py::_write_entry`
+
+Records were written without a lock. Fifty concurrent calls interleaved into
+lines that could not be parsed — destroying both records involved and making the
+integrity of the surrounding ones unprovable. This defect sat directly beneath
+the attribution work of Finding 6: an audit trail that shreds itself under load is
+worse than none, because it looks complete.
+
+Writes are now serialized, and each record is emitted as one complete line in a
+single write.
+
 ## Still to come

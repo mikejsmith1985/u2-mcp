@@ -91,6 +91,9 @@ class ConnectionManager:
         self._open_files: dict[str, Any] = {}  # Cache of open file handles
         # One conversation per session: commands must not interleave on the wire.
         self._command_lock = threading.RLock()
+        # Establishing a session is serialized separately, so a burst of callers
+        # arriving to find no session opens one connection rather than one each.
+        self._session_lock = threading.RLock()
         self._abandoned_queries = 0
 
     @property
@@ -222,6 +225,11 @@ class ConnectionManager:
     def get_session(self) -> Any:
         """Get the active uopy session, auto-reconnecting if necessary.
 
+        Establishing a session is serialized: when a burst of requests arrives to
+        find no session, every one of them would otherwise open its own. Those
+        duplicates leak a database connection each and stay invisible until the
+        server runs out of them.
+
         Returns:
             Active uopy.Session object
 
@@ -230,6 +238,21 @@ class ConnectionManager:
         """
         name = self._default_connection
 
+        with self._session_lock:
+            return self._establish_session(name)
+
+    def _establish_session(self, name: str) -> Any:
+        """Return a live session for this login, reconnecting if needed.
+
+        Args:
+            name: Connection record name
+
+        Returns:
+            Active uopy.Session object
+
+        Raises:
+            ConnectionError: If a session cannot be established
+        """
         if self._session is None:
             self._discard_connection(name)
             self.connect(name)

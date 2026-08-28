@@ -7,6 +7,7 @@ which is a debugging aid, not an audit trail. Passwords never reach the file.
 
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,8 @@ class AuditLogger:
         self.include_results = include_results
         self.max_result_size = max_result_size
         self._current_session_id: str | None = None
+        # Audit records are written from many request threads at once.
+        self._write_lock = threading.Lock()
         self._session_start: datetime | None = None
 
         # Ensure audit directory exists
@@ -262,13 +265,19 @@ class AuditLogger:
     def _write_entry(self, entry: dict[str, Any]) -> None:
         """Write an entry to the audit log file.
 
+        Writes are serialized, and each record is emitted as one complete line in
+        a single write. Without that, two requests finishing at the same moment
+        interleave into a line that cannot be parsed -- which loses both records
+        and makes the integrity of the surrounding ones unprovable.
+
         Args:
             entry: The log entry to write
         """
+        line = json.dumps(entry, default=str) + "\n"
         try:
             log_file = self._get_log_file_path()
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
+            with self._write_lock, open(log_file, "a", encoding="utf-8") as handle:
+                handle.write(line)
         except Exception as e:
             logger.error(f"Failed to write audit log entry: {e}")
 
