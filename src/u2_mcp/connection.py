@@ -2,6 +2,7 @@
 
 import logging
 import socket
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,15 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# MultiValue delimiters, named so the sanitizer reads as intent rather than magic numbers.
+AM = chr(254)  # Attribute mark - separates fields
+VM = chr(253)  # Value mark - separates values within a field
+SM = chr(252)  # Subvalue mark - separates subvalues within a value
+
+# Unicode categories that must never reach a user's screen: control codes,
+# formatting marks, surrogates, private-use and unassigned code points.
+_NON_DISPLAYABLE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 
 @dataclass
@@ -174,6 +184,20 @@ class ConnectionManager:
         """Return all active connections."""
         return {k: v for k, v in self._connections.items() if v.is_active}
 
+    def _discard_connection(self, name: str) -> None:
+        """Forget a connection so the next connect() genuinely opens a new session.
+
+        Without this, connect() sees a connection record still marked active and
+        returns early, leaving the caller holding a dead (or absent) session.
+
+        Args:
+            name: Name of the connection record to discard
+        """
+        self._session = None
+        self._open_files.clear()
+        self._connections.pop(name, None)
+        self._transaction = TransactionState()
+
     def get_session(self) -> Any:
         """Get the active uopy session, auto-reconnecting if necessary.
 
@@ -183,21 +207,26 @@ class ConnectionManager:
         Raises:
             ConnectionError: If reconnection fails
         """
+        name = self._default_connection
+
         if self._session is None:
-            self.connect(self._default_connection)
+            self._discard_connection(name)
+            self.connect(name)
 
-        # At this point session should be set
-        assert self._session is not None
-
-        # Verify connection is still alive with a health check
+        # Verify the connection is still alive before handing it to a caller.
+        session = self._session
         try:
-            if not self._session.is_active:
-                raise uopy.UOError("Session not active")
+            is_alive = session is not None and bool(session.is_active)
         except (uopy.UOError, AttributeError):
+            is_alive = False
+
+        if not is_alive:
             logger.warning("Connection lost, attempting reconnect")
-            self._session = None
-            self._open_files.clear()
-            self.connect(self._default_connection)
+            self._discard_connection(name)
+            self.connect(name)
+
+        if self._session is None:
+            raise ConnectionError(f"Failed to establish a session to {self._config.host}")
 
         return self._session
 
@@ -289,8 +318,10 @@ class ConnectionManager:
     def _sanitize_output(self, text: str) -> str:
         """Clean up Universe output for display.
 
-        Removes/replaces control characters that cause display issues.
-        Converts MultiValue delimiters to readable representations.
+        Replaces MultiValue delimiters with readable separators and strips
+        terminal control codes. Real business data -- accented customer names,
+        currency symbols -- is preserved: filtering by Unicode category rather
+        than by "is it plain ASCII" is what keeps MULLER from losing its umlaut.
 
         Args:
             text: Raw output from Universe
@@ -298,25 +329,37 @@ class ConnectionManager:
         Returns:
             Cleaned text suitable for JSON/display
         """
-        # Replace carriage returns with newlines
+        # Normalize terminal line endings and page breaks to plain newlines.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
-        # Remove form feeds (page breaks)
         text = text.replace("\f", "\n")
 
         # Convert MultiValue delimiters to readable text
         # AM (chr 254) = field/attribute separator -> newline
         # VM (chr 253) = multivalue separator -> pipe
         # SM (chr 252) = subvalue separator -> semicolon
-        text = text.replace(chr(254), "\n")  # AM -> newline
-        text = text.replace(chr(253), " | ")  # VM -> pipe
-        text = text.replace(chr(252), " ; ")  # SM -> semicolon
+        text = text.replace(AM, "\n")
+        text = text.replace(VM, " | ")
+        text = text.replace(SM, " ; ")
 
-        # Remove other control characters except newline and tab
-        cleaned = []
-        for char in text:
-            if char == "\n" or char == "\t" or (ord(char) >= 32 and ord(char) < 127):
-                cleaned.append(char)
-        return "".join(cleaned)
+        return "".join(char for char in text if self._is_displayable(char))
+
+    @staticmethod
+    def _is_displayable(char: str) -> bool:
+        """Return whether a character is safe to show to a user.
+
+        Keeps newlines and tabs, drops the control, format, surrogate and
+        private-use categories, and keeps every ordinary printable character
+        regardless of alphabet.
+
+        Args:
+            char: A single character
+
+        Returns:
+            True if the character should survive sanitization
+        """
+        if char in ("\n", "\t"):
+            return True
+        return unicodedata.category(char) not in _NON_DISPLAYABLE_CATEGORIES
 
     def create_select_list(self) -> Any:
         """Create a new select list object.

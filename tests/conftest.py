@@ -3,11 +3,20 @@
 import os
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
+from tests.mocks.mock_uopy import (
+    MockCommand,
+    MockFile,
+    MockList,
+    MockSession,
+    MockSubroutine,
+    UOError,
+)
 from u2_mcp.config import U2Config
+from u2_mcp.connection import ConnectionManager
 
 
 @pytest.fixture
@@ -43,26 +52,53 @@ def mock_config_read_only(mock_env: dict[str, str]) -> U2Config:
 
 
 @pytest.fixture
-def mock_file() -> MagicMock:
-    """Provide a mock Universe file object."""
-    from tests.mocks.mock_uopy import MockFile
-
-    return MockFile()
-
-
-@pytest.fixture
-def mock_session(mock_file: MagicMock) -> MagicMock:
-    """Provide a mock uopy session."""
-    from tests.mocks.mock_uopy import MockSession
-
+def mock_session() -> "MockSession":
+    """Provide a mock uopy session that speaks the current uopy 1.4 API."""
     return MockSession()
 
 
 @pytest.fixture
-def mock_uopy(mock_session: MagicMock) -> Generator[MagicMock, None, None]:
-    """Patch uopy.connect to return mock session."""
-    with patch("uopy.connect", return_value=mock_session), patch("uopy.UOError", Exception):
+def mock_uopy(mock_session: "MockSession") -> Generator["MockSession", None, None]:
+    """Replace every uopy entry point the server uses with a mock.
+
+    Patching the whole surface -- not just `connect` -- is what lets a test
+    exercise the real production code path instead of a rewritten one.
+    """
+
+    def fake_connect(**kwargs: Any) -> MockSession:
+        """Hand back a live session, mirroring a real reconnect to the same server."""
+        mock_session.is_active = True
+        mock_session.connect_kwargs = kwargs
+        return mock_session
+
+    with (
+        patch("uopy.connect", side_effect=fake_connect),
+        patch("uopy.UOError", UOError),
+        patch("uopy.File", MockFile),
+        patch("uopy.Command", MockCommand),
+        patch("uopy.List", MockList),
+        patch("uopy.Subroutine", MockSubroutine),
+    ):
         yield mock_session
+
+
+@pytest.fixture
+def connection_manager(
+    mock_config: U2Config, mock_uopy: "MockSession"
+) -> Generator["ConnectionManager", None, None]:
+    """Provide a ConnectionManager wired to the mock session, plus a clean global.
+
+    Tool functions reach for the module-level connection manager, so this
+    fixture installs one and tears it down to keep tests isolated.
+    """
+    import u2_mcp.server as server_module
+
+    manager = ConnectionManager(mock_config)
+    server_module._connection_manager = manager
+    try:
+        yield manager
+    finally:
+        server_module._connection_manager = None
 
 
 @pytest.fixture
