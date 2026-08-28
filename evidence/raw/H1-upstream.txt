@@ -12,8 +12,8 @@ tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive 
 ================================== FAILURES ===================================
 _________ TestOutputSanitization.test_accented_customer_names_survive _________
 
-self = <tests.test_connection.TestOutputSanitization object at 0x000001735EE57DA0>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001735EE54E30>
+self = <tests.test_connection.TestOutputSanitization object at 0x000002774A283E00>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000027747928C80>
 
     def test_accented_customer_names_survive(self, connection_manager: ConnectionManager) -> None:
         """Non-ASCII letters in real customer data are preserved, not stripped."""
@@ -25,8 +25,8 @@ E       AssertionError: assert 'MÜLLER GmbH' in 'MLLER GmbH\nJos Pea'
 tests\test_connection.py:211: AssertionError
 ____________ TestOutputSanitization.test_currency_symbols_survive _____________
 
-self = <tests.test_connection.TestOutputSanitization object at 0x000001735EE57A40>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001736182C500>
+self = <tests.test_connection.TestOutputSanitization object at 0x000002774A283A40>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002774A688380>
 
     def test_currency_symbols_survive(self, connection_manager: ConnectionManager) -> None:
         """Currency symbols in amounts are preserved, not silently deleted."""
@@ -39,4 +39,4 @@ tests\test_connection.py:218: AssertionError
 =========================== short test summary info ===========================
 FAILED tests/test_connection.py::TestOutputSanitization::test_accented_customer_names_survive
 FAILED tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive
-============================== 2 failed in 1.11s ==============================
+============================== 2 failed in 1.22s ==============================

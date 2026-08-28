@@ -131,10 +131,24 @@ class MockSubroutine:
         self.session = session
         self.args: list[str] = [""] * num_args
 
+    def set_arg(self, index: int, value: Any) -> None:
+        """Set an input argument by position."""
+        if index >= len(self.args):
+            raise UOError(f"Argument index {index} is out of range for '{self.name}'")
+        self.args[index] = str(value)
+
+    def get_arg(self, index: int) -> str:
+        """Read an argument back after the call."""
+        if index >= len(self.args):
+            raise UOError(f"Argument index {index} is out of range for '{self.name}'")
+        return self.args[index]
+
     def call(self) -> None:
         """Execute the subroutine, prefixing each non-empty argument with RESULT:."""
-        if self.session is not None and self.session.subroutine_error is not None:
-            raise self.session.subroutine_error
+        if self.session is not None:
+            self.session.called_subroutines.append((self.name, list(self.args)))
+            if self.session.subroutine_error is not None:
+                raise self.session.subroutine_error
         for i, value in enumerate(self.args):
             if value:
                 self.args[i] = f"RESULT:{value}"
@@ -156,6 +170,7 @@ class MockSession:
         self.command_error: Exception | None = None
         self.command_delay_seconds: float = 0.0
         self.subroutine_error: Exception | None = None
+        self.called_subroutines: list[tuple[str, list[str]]] = []
         self.select_list: list[str] = []
         self.in_transaction: bool = False
         self.transaction_log: list[str] = []

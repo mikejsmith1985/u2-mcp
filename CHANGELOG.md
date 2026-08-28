@@ -76,9 +76,18 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
   (`uopy.File(name, session=...)`, `uopy.Command(text, session=...)`, `cmd.run()`,
   `session.tx_start()`), so a passing test exercises the real code path.
 
-- **Connection test suite** — 17 tests covering connect/reuse/disconnect, session
-  recovery, file-handle caching, command execution, output sanitization and
-  transaction state.
+- **Connection test suite** — 22 tests covering connect/reuse/disconnect, session
+  recovery, file-handle caching, command execution, output sanitization, query
+  timeouts and transaction state.
+
+- **Tool-layer test suite.** `tests/test_tools/` was empty upstream; every tool
+  module that touches business data now has tests, taking the tool package from
+  0% to 65% statement coverage and the suite from 45 to 203 tests. The emphasis
+  is on the safety guarantees an operator relies on: read-only mode genuinely
+  leaves data untouched rather than only returning an error, writes and deletes
+  require explicit confirmation, refused commands never reach the server,
+  MultiValue structure survives a write-then-read round trip, and batch reads
+  name what they could not find.
 
 - **`scripts/verify_hardening.py`** — runs each fix's tests against the upstream
   commit and against this fork, and writes `evidence/hardening-evidence.md` with

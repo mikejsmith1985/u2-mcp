@@ -228,6 +228,42 @@ connects with.
 
 **Proof:** `tests/test_registry.py` and `tests/test_identity.py`
 
-## Still to come
+## Finding 8 — the tools that touch data had no tests at all
 
-- Test coverage for the remaining tool modules
+**Where:** `tests/test_tools/`, which contained only an empty `__init__.py`
+
+Finding 0 explained why: the test doubles modelled an API the server had stopped
+calling, so no tool test could have been written against them. With the doubles
+rebuilt, the tools became testable, and every module that touches business data
+now has coverage.
+
+The emphasis is deliberately on the guarantees an operator actually relies on,
+rather than on line coverage for its own sake:
+
+- **Read-only mode leaves the data untouched**, not merely returns an error. Each
+  refusal is asserted twice: once on the response, once on the stored record.
+- **Writes and deletes require explicit confirmation**, and an unconfirmed call
+  changes nothing.
+- **A refused command never reaches the server** — asserted against the commands
+  the mock session actually received.
+- **MultiValue structure survives a write-then-read round trip**, which is the
+  property the whole project exists to preserve.
+- **A batch read names what it could not find** instead of silently returning
+  fewer records than asked for.
+- **A nested transaction is refused without disturbing the open one.**
+- **Knowledge de-duplicates near-identical topic names**, so one file does not
+  accrue five entries under five spellings.
+
+| | Upstream | This fork |
+| --- | --- | --- |
+| Tests in the suite | 45 | 203 |
+| Tool-package coverage | 0% | 65% |
+| Tool modules with tests | 0 of 6 | 6 of 6 |
+
+Two things surfaced while writing them. The mock subroutine had to gain the real
+`set_arg`/`get_arg` API, because the previous double exposed a bare argument list
+the production code never uses -- the same drift as Finding 0, one layer down.
+And `delete_knowledge` requires confirmation, which is good behaviour that was
+nowhere asserted; it is now.
+
+## Still to come

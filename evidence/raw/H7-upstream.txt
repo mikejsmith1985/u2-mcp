@@ -31,4 +31,4 @@ E   ModuleNotFoundError: No module named 'u2_mcp.credentials'
 ERROR tests/test_registry.py
 ERROR tests/test_identity.py
 !!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!
-============================== 2 errors in 0.18s ==============================
+============================== 2 errors in 0.13s ==============================
