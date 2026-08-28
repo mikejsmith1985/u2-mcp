@@ -1,6 +1,6 @@
 # Hardening evidence
 
-Generated 2026-08-28 18:02 UTC by `scripts/verify_hardening.py`.
+Generated 2026-08-28 18:10 UTC by `scripts/verify_hardening.py`.
 
 Each fix below is measured with the same tests against two checkouts: the upstream code at `f427768`, and this fork. A fix counts as proven only when its tests fail on the original and pass here.
 
@@ -11,6 +11,8 @@ Each fix below is measured with the same tests against two checkouts: the upstre
 | H3 | A truncated answer was presented as a complete one | fails | passes | [before](raw/H3-upstream.txt) / [after](raw/H3-fork.txt) |
 | H4 | A timed-out query kept running against the database | fails | passes | [before](raw/H4-upstream.txt) / [after](raw/H4-fork.txt) |
 | H5 | OAuth state was lost on restart, and could not be shared | fails | passes | [before](raw/H5-upstream.txt) / [after](raw/H5-fork.txt) |
+| H6 | The audit trail could not name who acted | fails | passes | [before](raw/H6-upstream.txt) / [after](raw/H6-fork.txt) |
+| H7 | Every caller reached the database as the same account | fails | passes | [before](raw/H7-upstream.txt) / [after](raw/H7-fork.txt) |
 
 ## What each defect cost
 
@@ -33,4 +35,12 @@ The timeout returned an error but never stopped the work: the query continued on
 ### H5 — OAuth state was lost on restart, and could not be shared
 
 Every registration, token and in-flight login lived in process memory. A restart signed everyone out, and a second instance behind a load balancer would not recognise the first one's tokens -- so the service could not be made redundant.
+
+### H6 — The audit trail could not name who acted
+
+Records carried a session id generated when the server started, not the authenticated user. Single sign-on proved who someone was, and then that answer was discarded -- so no record could say who ran a query.
+
+### H7 — Every caller reached the database as the same account
+
+One connection served the whole process under one login, so Universe's own file and field security could not act on the real caller. Each authenticated person can now hold their own session under their own account, and an unmapped caller is refused rather than silently sharing.
 

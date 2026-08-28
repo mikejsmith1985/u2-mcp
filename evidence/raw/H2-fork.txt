@@ -8,4 +8,4 @@ collecting ... collected 1 item
 
 tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive PASSED [100%]
 
-============================== 1 passed in 0.37s ==============================
+============================== 1 passed in 0.33s ==============================

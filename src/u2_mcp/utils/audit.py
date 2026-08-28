@@ -1,7 +1,8 @@
 """Audit logging for MCP tool calls.
 
-Logs all tool invocations with parameters and results to files for
-later analysis and debugging.
+Every record names the person who made the call and the database login the work
+ran under. Without that, an audit file records only that *something* happened --
+which is a debugging aid, not an audit trail. Passwords never reach the file.
 """
 
 import json
@@ -10,7 +11,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..identity import current_caller
+
 logger = logging.getLogger(__name__)
+
+
+def _describe_login(credentials: Any | None) -> dict[str, Any]:
+    """Describe the database login a call ran under, without its password.
+
+    Args:
+        credentials: A U2Credentials, or None when the login is not known
+
+    Returns:
+        Audit fields naming the login and whether it was shared
+    """
+    if credentials is None:
+        return {}
+    return {
+        "db_login": credentials.pool_key,
+        "db_login_is_shared": credentials.is_shared,
+    }
 
 
 class AuditLogger:
@@ -100,8 +120,9 @@ class AuditLogger:
         result: Any | None = None,
         error: str | None = None,
         duration_ms: float | None = None,
+        credentials: Any | None = None,
     ) -> None:
-        """Log a tool invocation.
+        """Log a tool invocation, attributed to the person who made it.
 
         Args:
             tool_name: Name of the tool being called
@@ -109,6 +130,7 @@ class AuditLogger:
             result: Result returned by the tool (optional)
             error: Error message if tool failed (optional)
             duration_ms: Execution time in milliseconds (optional)
+            credentials: The database login the work ran under (optional)
         """
         entry: dict[str, Any] = {
             "event": "tool_call",
@@ -117,6 +139,8 @@ class AuditLogger:
             "tool": tool_name,
             "parameters": self._sanitize_parameters(parameters),
         }
+        entry.update(current_caller().for_audit())
+        entry.update(_describe_login(credentials))
 
         if duration_ms is not None:
             entry["duration_ms"] = round(duration_ms, 2)

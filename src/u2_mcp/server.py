@@ -11,6 +11,9 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import U2Config
 from .connection import ConnectionError, ConnectionManager
+from .credentials import create_credential_resolver
+from .identity import CallerIdentity, caller_from_stored_token, set_identity_resolver
+from .registry import ConnectionRegistry
 from .utils.audit import audit_tool_call, get_audit_logger, init_audit_logger
 from .utils.watchdog import ConnectionWatchdog, get_watchdog, init_watchdog
 
@@ -27,29 +30,82 @@ F = TypeVar("F", bound=Callable[..., Any])
 # Create FastMCP server instance
 mcp = FastMCP("U2 MCP Server")
 
-# Global connection manager (initialized on first connect)
+# One connection per database login, chosen by who is calling.
+_connection_registry: ConnectionRegistry | None = None
+
+# Set directly by tests that want a single manager; takes precedence when present.
 _connection_manager: ConnectionManager | None = None
 
 
+def get_connection_registry() -> ConnectionRegistry:
+    """Get or create the registry holding one connection per database login."""
+    global _connection_registry
+    if _connection_registry is None:
+        config = U2Config()
+        _connection_registry = ConnectionRegistry(config, create_credential_resolver(config))
+    return _connection_registry
+
+
 def get_connection_manager() -> ConnectionManager:
-    """Get or create the global connection manager.
+    """Get the connection manager for the caller of the current request.
+
+    In the default shared mode every caller resolves to the same login, so this
+    returns one manager for the whole process. In mapped mode each authenticated
+    person gets their own session under their own Universe account.
 
     Returns:
-        ConnectionManager instance configured from environment variables
+        The ConnectionManager holding that caller's session
     """
-    global _connection_manager
-    if _connection_manager is None:
-        config = U2Config()
-        _connection_manager = ConnectionManager(config)
-    return _connection_manager
+    if _connection_manager is not None:
+        return _connection_manager
+    return get_connection_registry().current()
 
 
 def reset_connection_manager() -> None:
-    """Reset the global connection manager (useful for testing)."""
-    global _connection_manager
+    """Reset the global connection state (useful for testing)."""
+    global _connection_manager, _connection_registry
     if _connection_manager is not None:
         _connection_manager.disconnect_all()
     _connection_manager = None
+    if _connection_registry is not None:
+        _connection_registry.disconnect_all()
+    _connection_registry = None
+
+
+def _install_identity_resolver(auth_provider: Any) -> None:
+    """Teach the server how to name the caller behind an authenticated request.
+
+    The MCP SDK exposes the access token presented on the current request; the
+    subject it was issued to lives in this server's own OAuth store. Joining the
+    two is what turns "a request arrived" into "Alice asked for this".
+
+    Args:
+        auth_provider: The OAuth provider holding issued tokens
+    """
+    from mcp.server.auth.middleware.auth_context import get_access_token
+
+    def resolve() -> CallerIdentity | None:
+        access_token = get_access_token()
+        if access_token is None:
+            return None
+        stored = auth_provider.storage.get_access_token(access_token.token)
+        if stored is None:
+            return None
+        return caller_from_stored_token(stored)
+
+    set_identity_resolver(resolve)
+
+
+def _current_login() -> Any | None:
+    """Return the database login the current request is using, for the audit trail.
+
+    Returns None when no connection could be resolved, so audit logging never
+    becomes the reason a tool call fails.
+    """
+    try:
+        return get_connection_manager().credentials
+    except Exception:  # noqa: BLE001 - auditing must not break the call it records
+        return None
 
 
 def _init_watchdog(config: U2Config) -> ConnectionWatchdog | None:
@@ -65,13 +121,13 @@ def _init_watchdog(config: U2Config) -> ConnectionWatchdog | None:
         logger.info("Connection watchdog disabled")
         return None
 
-    manager = get_connection_manager()
+    registry = get_connection_registry()
 
     def health_check() -> bool:
-        return manager.health_check()
+        return registry.health_check()
 
     def force_disconnect() -> None:
-        manager.force_disconnect()
+        registry.force_disconnect()
 
     watchdog = init_watchdog(config, health_check, force_disconnect)
     logger.info("Connection watchdog initialized")
@@ -135,6 +191,7 @@ def _wrap_tools_with_audit(mcp_instance: FastMCP) -> None:
                     result=result,
                     error=error_msg,
                     duration_ms=duration_ms,
+                    credentials=_current_login(),
                 )
 
         tool.fn = wrapped_fn
@@ -374,7 +431,13 @@ def run_streamable_http_server() -> None:
             required_scopes=["u2:read"],
         )
 
+        # Close the loop between authentication and attribution: the bearer token
+        # on the request is looked up in the OAuth store to recover the person it
+        # was issued to, so the audit trail and credential resolution see a name.
+        _install_identity_resolver(auth_provider)
+
         logger.info(f"OAuth enabled with {config.idp_provider} IdP")
+        logger.info(f"Caller identity mode: {config.identity_mode}")
 
     # Create new FastMCP instance with auth configured
     # Note: We need a new instance because the original 'mcp' was created without auth

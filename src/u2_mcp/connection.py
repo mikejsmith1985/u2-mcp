@@ -15,6 +15,7 @@ if not hasattr(socket, "TCP_KEEPIDLE"):
 import uopy
 
 from .config import U2Config
+from .credentials import U2Credentials
 
 if TYPE_CHECKING:
     pass
@@ -73,8 +74,16 @@ class ConnectionManager:
         config: U2Config instance with connection parameters
     """
 
-    def __init__(self, config: U2Config) -> None:
+    def __init__(self, config: U2Config, credentials: "U2Credentials | None" = None) -> None:
         self._config = config
+        # Credentials may belong to one person rather than the whole server, so the
+        # database can enforce its own security against the real caller.
+        self._credentials = credentials or U2Credentials(
+            user=config.user,
+            password=config.password,
+            account=config.account,
+            is_shared=True,
+        )
         self._session: Any | None = None  # uopy.Session
         self._connections: dict[str, ConnectionInfo] = {}
         self._default_connection: str = "default"
@@ -88,6 +97,11 @@ class ConnectionManager:
     def config(self) -> U2Config:
         """Return the configuration object."""
         return self._config
+
+    @property
+    def credentials(self) -> U2Credentials:
+        """Return the database login this manager connects with."""
+        return self._credentials
 
     @property
     def in_transaction(self) -> bool:
@@ -111,27 +125,30 @@ class ConnectionManager:
             return self._connections[name]
 
         try:
-            logger.info(f"Connecting to {self._config.host}/{self._config.account}")
+            logger.info(
+                f"Connecting to {self._config.host}/{self._credentials.account} "
+                f"as {self._credentials.user}"
+            )
 
             self._session = uopy.connect(
                 host=self._config.host,
-                user=self._config.user,
-                password=self._config.password,
-                account=self._config.account,
+                user=self._credentials.user,
+                password=self._credentials.password,
+                account=self._credentials.account,
                 service=self._config.service,
             )
 
             info = ConnectionInfo(
                 name=name,
                 host=self._config.host,
-                account=self._config.account,
+                account=self._credentials.account,
                 service=self._config.service,
                 connected_at=datetime.now(),
                 is_active=True,
             )
             self._connections[name] = info
 
-            logger.info(f"Connected successfully to {self._config.account}")
+            logger.info(f"Connected successfully to {self._credentials.account}")
             return info
 
         except uopy.UOError as e:

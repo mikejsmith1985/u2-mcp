@@ -153,6 +153,22 @@ class U2Config(BaseSettings):
         description="Duo API hostname (e.g., api-XXXXXXXX.duosecurity.com)",
     )
 
+    # Caller identity and database credentials
+    identity_mode: str = Field(
+        default="shared",
+        alias="U2_IDENTITY_MODE",
+        description=(
+            "How a caller reaches the database: 'shared' (one account for everyone, "
+            "so the database cannot tell callers apart) or 'mapped' (each "
+            "authenticated person uses their own Universe login)"
+        ),
+    )
+    credential_map_path: str = Field(
+        default="~/.u2-mcp/credentials.json",
+        alias="U2_CREDENTIAL_MAP_PATH",
+        description="JSON map of user subject to Universe login, for U2_IDENTITY_MODE=mapped",
+    )
+
     # OAuth state storage
     auth_storage: str = Field(
         default="memory",

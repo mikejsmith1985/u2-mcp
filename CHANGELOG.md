@@ -41,6 +41,23 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
   work — and the next request reconnects. Commands are also serialized per session,
   and abandoned queries are counted and exposed as `abandoned_query_count`.
 
+- **The audit trail now names who acted** **[proven]**
+  Records carried a session id generated at server start, not the authenticated
+  user, so no record could say who ran a query. Every entry now carries the
+  identity provider's subject, a readable name and email, the OAuth client that
+  presented the token, whether the caller was authenticated at all, and the
+  database login the work ran under -- including whether that login was shared.
+  Passwords never reach the file.
+
+- **Each caller can now reach the database as themselves** **[proven]**
+  One connection served the whole process under one account, so Universe's own
+  file and field security could not act on the real caller. `U2_IDENTITY_MODE`
+  now selects `shared` (the previous behaviour, kept as the default, but logged
+  and flagged in the audit trail) or `mapped`, where each authenticated person
+  connects under their own Universe login from `U2_CREDENTIAL_MAP_PATH`. An
+  unmapped caller is refused rather than silently falling back to the shared
+  account.
+
 ### Added
 
 - **Durable OAuth state** **[proven]**

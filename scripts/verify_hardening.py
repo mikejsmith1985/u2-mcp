@@ -111,6 +111,33 @@ FIXES: list[Fix] = [
             "tests/test_auth/test_storage.py::TestDurability",
         ],
     ),
+    Fix(
+        key="H6",
+        title="The audit trail could not name who acted",
+        impact=(
+            "Records carried a session id generated when the server started, not the "
+            "authenticated user. Single sign-on proved who someone was, and then that "
+            "answer was discarded -- so no record could say who ran a query."
+        ),
+        tests=[
+            "tests/test_utils/test_audit.py::TestAttribution",
+            "tests/test_utils/test_audit.py::TestDatabaseLoginRecording",
+        ],
+    ),
+    Fix(
+        key="H7",
+        title="Every caller reached the database as the same account",
+        impact=(
+            "One connection served the whole process under one login, so Universe's own "
+            "file and field security could not act on the real caller. Each "
+            "authenticated person can now hold their own session under their own "
+            "account, and an unmapped caller is refused rather than silently sharing."
+        ),
+        tests=[
+            "tests/test_registry.py",
+            "tests/test_identity.py",
+        ],
+    ),
 ]
 
 

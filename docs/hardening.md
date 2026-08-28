@@ -172,9 +172,62 @@ Redis or Postgres backend would implement.
 simulated with a second instance on the same file, and an assertion that the raw
 token bytes never appear in the database.
 
+## Finding 6 — the audit trail could not name who acted
+
+**Where:** `utils/audit.py::AuditLogger.log_tool_call()`
+
+**What happened:** every record carried `session_id`, generated when the server
+process started. It identified the *process*, not the person.
+
+**What it cost:** the server went to real trouble to authenticate people through
+Duo, Auth0 or Okta, and then discarded the answer. Asked "who ran that query
+against the customer file on Tuesday?", the log could say only that a query was
+run. That is a debugging aid, not an audit trail, and it is the gap that matters
+first in a regulated environment.
+
+**The fix:** a caller identity now travels with the request, and every audit
+record carries the identity provider's subject, a readable name and email, the
+OAuth client that presented the token, whether the request was authenticated at
+all, and the database login the work actually ran under. Local stdio use is
+recorded honestly as unauthenticated rather than left ambiguous. Passwords are
+still never written: the login is recorded as `USER@ACCOUNT`, never with its
+password, and existing parameter redaction is covered by tests.
+
+**Proof:** `tests/test_utils/test_audit.py`
+
+## Finding 7 — every caller reached the database as the same account
+
+**Where:** `server.py::get_connection_manager()` and `ConnectionManager`
+
+**What happened:** a single module-level `ConnectionManager` served the whole
+process, built from the credentials in the server's own environment. Whoever was
+asking, the query arrived at Universe under one account.
+
+**What it cost:** this is the finding that decides whether the server can go near
+regulated data. Universe has its own file and field security, and it was being
+shown a service account rather than the person. Nothing the database could do
+would restrict Alice differently from Bob, because it never saw either of them.
+The single shared session also meant one person's transaction state and open file
+handles were shared with everyone else's requests.
+
+**The fix:** a `ConnectionRegistry` holds one `ConnectionManager` per database
+login and hands out the one belonging to the current caller. `U2_IDENTITY_MODE`
+chooses how a caller becomes a login:
+
+- `shared` keeps the upstream behaviour and remains the default, so no existing
+  deployment changes. It now logs what it gives up at startup and marks every
+  audit record as having used a shared login.
+- `mapped` reads a JSON map of identity-provider subject to Universe login, so
+  each person connects as themselves and the database's own security applies to
+  them. A caller with no entry is **refused**: falling back to the shared account
+  would undo the point of mapping.
+
+Composition rather than rewriting kept this contained -- `ConnectionManager` was
+left as the per-login object it already was, and gained only the credentials it
+connects with.
+
+**Proof:** `tests/test_registry.py` and `tests/test_identity.py`
+
 ## Still to come
 
-- Per-user database identity, so the database's own security sees the real caller
-- Audit records that name the authenticated user rather than a per-process session id
-- Durable OAuth state, so a restart does not sign everyone out
 - Test coverage for the remaining tool modules
