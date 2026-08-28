@@ -265,13 +265,13 @@ class U2Config(BaseSettings):
         description="Maximum characters to log for tool results (truncates if larger)",
     )
 
-    @computed_field  # type: ignore[prop-decorator]  # pydantic pattern
+    @computed_field
     @property
     def blocked_commands(self) -> list[str]:
         """Parse comma-separated string into list of commands."""
         return [cmd.strip().upper() for cmd in self.blocked_commands_str.split(",") if cmd.strip()]
 
-    @computed_field  # type: ignore[prop-decorator]  # pydantic pattern
+    @computed_field
     @property
     def http_cors_origins(self) -> list[str]:
         """Parse comma-separated CORS origins into list."""

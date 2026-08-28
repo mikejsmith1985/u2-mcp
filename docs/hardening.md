@@ -511,5 +511,39 @@ Findings 16 to 18 were all introduced by this fork, and none of them would have
 been found by running the tests. They came from reading the code again with one
 question in mind: what else does this touch?
 
+## The type errors were hiding two real bugs
+
+Upstream's CI runs `mypy src/`, and it reported 14 errors — so that step was
+already failing before this fork touched anything. It would have been easy to
+silence them. Read instead, two of them turned out to be defects in the refresh
+flow, which is the path every session takes about an hour in.
+
+**Finding 19 — refreshing a token crashed.** `exchange_refresh_token` read
+`refresh_token.resource`, and the SDK's `RefreshToken` has no such attribute. Any
+client attempting to refresh got an `AttributeError`. mypy had been saying so
+plainly: `"RefreshToken" has no attribute "resource"`.
+
+**Finding 20 — a refreshed token belonged to nobody.** The new tokens were stored
+with `user_subject=""` under a comment reading "Preserved from original auth". It
+was not preserved. From the first refresh onward the audit trail would record an
+empty user, and in mapped mode credential resolution would fail outright — so the
+identity work of Findings 6 and 7 quietly stopped applying an hour into every
+session. The rotation now recovers the stored token first and carries its subject,
+claims and resource across, and refuses a token this server did not issue.
+
+The remaining errors were smaller but each named something worth fixing rather
+than suppressing: a token could be stored against a `None` client id, so it could
+never be revoked by client or attributed in a log; token introspection built an
+HTTP request with `None` credentials, failing inside the transport rather than
+reporting the configuration error it was; a client authentication method outside
+the four the specification defines would have been advertised verbatim; and the
+issuer URL was accepted unvalidated, so a malformed one failed at the first
+sign-in rather than at startup.
+
+`mypy src/` now reports no issues across 37 files, with `strict_equality`,
+`warn_unused_ignores` and `warn_redundant_casts` added and the two stale
+`type: ignore` comments removed. Nothing is suppressed to achieve it.
+
 ## Still to come
+
 

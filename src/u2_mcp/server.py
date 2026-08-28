@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import AnyHttpUrl
 
 from .config import U2Config
 from .connection import ConnectionError, ConnectionManager
@@ -436,10 +437,14 @@ def run_streamable_http_server() -> None:
             storage=create_auth_storage(config.auth_storage, config.auth_storage_path),
         )
 
+        # Validating the issuer URL here means a malformed one fails at startup
+        # rather than at the first sign-in attempt.
+        issuer_url = AnyHttpUrl(config.auth_issuer_url)
+
         # Configure auth settings for FastMCP
         auth_settings = AuthSettings(
-            issuer_url=config.auth_issuer_url,
-            resource_server_url=config.auth_issuer_url,
+            issuer_url=issuer_url,
+            resource_server_url=issuer_url,
             client_registration_options=ClientRegistrationOptions(
                 enabled=True,  # Required for Claude.ai DCR
                 valid_scopes=["u2:read", "u2:write"],
@@ -529,7 +534,8 @@ def run_streamable_http_server() -> None:
                 )
 
             logger.info(f"RESPONSE: {request.method} {path} -> {response.status_code}")
-            return response
+            passthrough: StarletteResponse = response
+            return passthrough
 
     app.add_middleware(RequestLoggingMiddleware)
 

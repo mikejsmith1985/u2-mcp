@@ -51,6 +51,20 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Fixed
 
+- **Refreshing a token no longer crashes, and no longer loses the user.**
+  `exchange_refresh_token` read an attribute the SDK's `RefreshToken` does not
+  have, so every refresh raised `AttributeError`; and the replacement tokens were
+  stored with an empty `user_subject` under a comment claiming the identity was
+  preserved. From the first refresh onward the audit trail would have recorded an
+  empty user and per-user credentials could not resolve at all. Rotation now
+  recovers the stored token, carries its subject, claims and resource across, and
+  refuses a refresh token this server did not issue.
+
+- **Type checking passes.** Upstream's CI ran `mypy src/` against 14 errors, so
+  that step was already failing. Each was fixed rather than suppressed, which is
+  how the two refresh defects above were found. `strict_equality`,
+  `warn_unused_ignores` and `warn_redundant_casts` are now on.
+
 - **Non-ASCII business data is no longer deleted from query output** **[proven]**
   `_sanitize_output()` kept only plain ASCII, so accented customer names
   (`MÜLLER`, `José Peña`) and currency symbols (`£`, `€`, `¥`) disappeared from

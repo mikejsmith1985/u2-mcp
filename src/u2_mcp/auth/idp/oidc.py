@@ -152,7 +152,19 @@ class GenericOIDCAdapter(BaseIdPAdapter):
     async def _validate_via_introspection(
         self, access_token: str, introspection_endpoint: str
     ) -> TokenInfo | None:
-        """Validate token via OAuth 2.0 Token Introspection (RFC 7662)."""
+        """Validate token via OAuth 2.0 Token Introspection (RFC 7662).
+
+        Introspection authenticates as this client, so both halves of the client
+        credential must be present. Without the guard the request is built with
+        None and fails inside httpx, which reads as a transport problem rather
+        than the configuration error it is.
+        """
+        if not self.client_id or not self.client_secret:
+            logger.error(
+                "Cannot introspect a token without both U2_IDP_CLIENT_ID and U2_IDP_CLIENT_SECRET"
+            )
+            return None
+
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 introspection_endpoint,
