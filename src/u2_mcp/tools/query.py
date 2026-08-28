@@ -26,6 +26,8 @@ def execute_query(query: str, max_rows: int | None = None) -> dict[str, Any]:
 
     Returns:
         Dictionary containing query, output, status, and row limit applied.
+        When a row limit was imposed, `is_complete` is False and `warning`
+        explains in words that the answer may be partial.
     """
     manager = get_connection_manager()
     config = manager.config
@@ -44,18 +46,31 @@ def execute_query(query: str, max_rows: int | None = None) -> dict[str, Any]:
         # Add SAMPLE clause for LIST commands to limit results
         query_upper = query.upper().strip()
         modified_query = query
-        if query_upper.startswith("LIST") and "SAMPLE" not in query_upper:
+        was_limit_injected = query_upper.startswith("LIST") and "SAMPLE" not in query_upper
+        if was_limit_injected:
             modified_query = f"{query} SAMPLE {effective_max}"
 
         output = manager.execute_command(modified_query)
 
-        return {
+        result: dict[str, Any] = {
             "query": query,
             "executed_query": modified_query if modified_query != query else None,
             "output": output,
             "status": "success",
             "max_rows": effective_max,
+            "is_complete": not was_limit_injected,
         }
+
+        # A partial answer that looks complete is worse than an error, because the
+        # reader cannot tell one from the other. Say so explicitly.
+        if was_limit_injected:
+            result["warning"] = (
+                f"Results were limited to {effective_max} rows, so this may not be the "
+                "complete answer. Narrow the selection criteria, or raise the limit with "
+                "the max_rows argument or the U2_MAX_RECORDS setting."
+            )
+
+        return result
 
     except Exception as e:
         logger.error(f"Error executing query: {e}")
@@ -155,13 +170,22 @@ def get_select_list(query: str, max_ids: int | None = None) -> dict[str, Any]:
                 truncated = True
                 break
 
-        return {
+        result: dict[str, Any] = {
             "query": query,
             "record_ids": record_ids,
             "count": len(record_ids),
             "truncated": truncated,
+            "is_complete": not truncated,
             "max_ids": effective_max,
         }
+
+        if truncated:
+            result["warning"] = (
+                f"More records matched than the {effective_max} returned here. This is a "
+                "partial list; narrow the selection criteria for a complete answer."
+            )
+
+        return result
 
     except Exception as e:
         logger.error(f"Error executing select: {e}")

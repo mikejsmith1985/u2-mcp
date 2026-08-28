@@ -26,6 +26,21 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
   record is now discarded before reconnecting. This mattered most in stdio mode,
   the default for desktop clients, where no watchdog exists to clear the record.
 
+- **Truncated results are now reported as truncated** **[proven]**
+  `execute_query` appended a `SAMPLE` clause to `LIST` statements without marking
+  the answer partial, so a capped result read exactly like a complete one. Both
+  `execute_query` and `get_select_list` now return `is_complete`, plus a `warning`
+  in plain language when a limit was applied. An explicit caller-supplied `SAMPLE`
+  is respected rather than doubled.
+
+- **A timed-out query no longer keeps running** **[proven]**
+  The timeout raised an error but never stopped the work: the query continued on
+  the server, its thread stayed alive, and the session was handed to the next
+  request with a command still in flight. Since uopy cannot cancel a command, the
+  session is now closed — which drops the socket and lets the server abandon the
+  work — and the next request reconnects. Commands are also serialized per session,
+  and abandoned queries are counted and exposed as `abandoned_query_count`.
+
 ### Added
 
 - **Test doubles that match the code they double.** The previous mocks modelled an

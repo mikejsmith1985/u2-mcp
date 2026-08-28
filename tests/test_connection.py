@@ -92,6 +92,88 @@ class TestCommandExecution:
             connection_manager.execute_command("LIST CUSTOMERS")
 
 
+class TestQueryTimeouts:
+    """What happens to work the server abandons.
+
+    uopy offers no way to cancel a command in flight, so the only thing that
+    actually stops the work is closing the session it runs on. A timeout that
+    merely returns an error leaves the query running and the thread alive.
+    """
+
+    def test_timeout_raises_with_actionable_advice(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """A slow command raises TimeoutError explaining what to do next."""
+        mock_uopy.command_delay_seconds = 0.2
+
+        with pytest.raises(TimeoutError) as exc_info:
+            connection_manager.execute_command("LIST HUGE.FILE", timeout=0.05)
+
+        assert "SAMPLE" in str(exc_info.value)
+
+    def test_timeout_tears_down_the_session(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """The abandoned query's session is closed, which stops the server-side work."""
+        connection_manager.connect()
+        mock_uopy.command_delay_seconds = 0.2
+
+        with pytest.raises(TimeoutError):
+            connection_manager.execute_command("LIST HUGE.FILE", timeout=0.05)
+
+        assert mock_uopy.is_active is False
+
+    def test_next_request_after_a_timeout_still_works(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """Tearing down the session must not strand the server; the next call reconnects."""
+        mock_uopy.command_delay_seconds = 0.2
+        with pytest.raises(TimeoutError):
+            connection_manager.execute_command("LIST HUGE.FILE", timeout=0.05)
+
+        mock_uopy.command_delay_seconds = 0.0
+        assert "test-user" in connection_manager.execute_command("WHO")
+
+    def test_abandoned_queries_are_counted(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """Abandoned work is counted so an operator can see it happening."""
+        mock_uopy.command_delay_seconds = 0.2
+
+        with pytest.raises(TimeoutError):
+            connection_manager.execute_command("LIST HUGE.FILE", timeout=0.05)
+
+        assert connection_manager.abandoned_query_count == 1
+
+
+class TestConcurrentCommands:
+    """A uopy session is a single conversation with the server."""
+
+    def test_commands_do_not_interleave_on_one_session(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """Two threads issuing commands are serialized, not interleaved."""
+        import threading
+
+        mock_uopy.command_delay_seconds = 0.05
+        errors: list[Exception] = []
+
+        def issue(command: str) -> None:
+            try:
+                connection_manager.execute_command(command)
+            except Exception as exc:  # noqa: BLE001 - recorded and asserted below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=issue, args=(f"WHO {n}",)) for n in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert errors == []
+        assert len(mock_uopy.executed_commands) == 4
+
+
 class TestOutputSanitization:
     """How raw Universe output is cleaned for display.
 

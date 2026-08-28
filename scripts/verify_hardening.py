@@ -74,6 +74,30 @@ FIXES: list[Fix] = [
             "::test_get_session_reconnects_when_session_went_inactive",
         ],
     ),
+    Fix(
+        key="H3",
+        title="A truncated answer was presented as a complete one",
+        impact=(
+            "A row limit was silently appended to LIST queries, and nothing in the "
+            "response said so. 'How many of these do we have?' could return a capped "
+            "number that reads exactly like the real one."
+        ),
+        tests=[
+            "tests/test_tools/test_query.py::TestResultCompleteness",
+        ],
+    ),
+    Fix(
+        key="H4",
+        title="A timed-out query kept running against the database",
+        impact=(
+            "The timeout returned an error but never stopped the work: the query "
+            "continued on the server and its thread stayed alive against a session "
+            "the next request would reuse. Under load, abandoned queries accumulated."
+        ),
+        tests=[
+            "tests/test_connection.py::TestQueryTimeouts",
+        ],
+    ),
 ]
 
 

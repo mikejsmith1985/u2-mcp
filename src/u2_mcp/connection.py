@@ -2,6 +2,7 @@
 
 import logging
 import socket
+import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -79,6 +80,9 @@ class ConnectionManager:
         self._default_connection: str = "default"
         self._transaction = TransactionState()
         self._open_files: dict[str, Any] = {}  # Cache of open file handles
+        # One conversation per session: commands must not interleave on the wire.
+        self._command_lock = threading.RLock()
+        self._abandoned_queries = 0
 
     @property
     def config(self) -> U2Config:
@@ -270,8 +274,21 @@ class ConnectionManager:
             return True
         return False
 
-    def execute_command(self, command_text: str, timeout: int | None = None) -> str:
+    @property
+    def abandoned_query_count(self) -> int:
+        """Return how many queries have been abandoned to a timeout.
+
+        Abandoned work is worth surfacing: a rising count means queries are
+        routinely outrunning the timeout and the limit or the queries need review.
+        """
+        return self._abandoned_queries
+
+    def execute_command(self, command_text: str, timeout: float | None = None) -> str:
         """Execute a TCL command and return the response.
+
+        A uopy session is a single conversation with the server, so commands are
+        serialized: two at once on one session would interleave and corrupt each
+        other's replies.
 
         Args:
             command_text: TCL command to execute
@@ -283,10 +300,36 @@ class ConnectionManager:
         Raises:
             TimeoutError: If command exceeds timeout
         """
-        import threading
-
         effective_timeout = timeout if timeout is not None else self._config.query_timeout
-        session = self.get_session()
+
+        with self._command_lock:
+            session = self.get_session()
+            result, completed = self._start_command(command_text, session)
+
+            if completed.wait(timeout=effective_timeout):
+                if result["error"]:
+                    raise result["error"]
+                return self._sanitize_output(result["response"] or "")
+
+            self._abandon_command(command_text, effective_timeout)
+            raise TimeoutError(
+                f"Query exceeded {effective_timeout} second timeout and was abandoned. "
+                "The database session was closed to stop the work; the next request will "
+                "reconnect. Consider adding a SAMPLE clause or narrowing the selection "
+                "criteria."
+            )
+
+    def _start_command(self, command_text: str, session: Any) -> tuple[dict[str, Any], Any]:
+        """Run a command on a worker thread so the caller can time it out.
+
+        Args:
+            command_text: TCL command to execute
+            session: The uopy session to run it on
+
+        Returns:
+            Tuple of (result holder, completion event)
+        """
+        import threading
 
         result: dict[str, Any] = {"response": None, "error": None}
         completed = threading.Event()
@@ -301,19 +344,27 @@ class ConnectionManager:
             finally:
                 completed.set()
 
-        thread = threading.Thread(target=run_command, daemon=True)
-        thread.start()
+        threading.Thread(target=run_command, daemon=True).start()
+        return result, completed
 
-        if completed.wait(timeout=effective_timeout):
-            if result["error"]:
-                raise result["error"]
-            return self._sanitize_output(result["response"] or "")
-        else:
-            logger.error(f"Query timed out after {effective_timeout}s: {command_text[:100]}")
-            raise TimeoutError(
-                f"Query exceeded {effective_timeout} second timeout. "
-                "Consider adding SAMPLE clause or narrowing the selection criteria."
-            )
+    def _abandon_command(self, command_text: str, effective_timeout: float) -> None:
+        """Stop a query that outran its timeout.
+
+        uopy gives no way to cancel a command in flight, so returning an error
+        would leave the query running on the server and the thread alive against a
+        session another request would reuse. Closing the session is what actually
+        stops the work: the socket drops and the server abandons the command.
+
+        Args:
+            command_text: The command being abandoned, for the log
+            effective_timeout: The timeout it exceeded, for the log
+        """
+        self._abandoned_queries += 1
+        logger.error(
+            f"Query timed out after {effective_timeout}s and was abandoned "
+            f"(total abandoned: {self._abandoned_queries}): {command_text[:100]}"
+        )
+        self.force_disconnect()
 
     def _sanitize_output(self, text: str) -> str:
         """Clean up Universe output for display.

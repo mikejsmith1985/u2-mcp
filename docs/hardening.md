@@ -93,11 +93,53 @@ established.
 **Proof:**
 `tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive`
 
+## Finding 3 — a truncated answer was presented as a complete one
+
+**Where:** `tools/query.py::execute_query` and `::get_select_list`
+
+**What happened:** `execute_query` appended `SAMPLE <n>` to any `LIST` that did not
+already have one, capping results at `U2_MAX_RECORDS`. The response said which
+limit had been applied, but nothing marked the answer as partial — and an AI
+client reading that response has no reason to treat it as incomplete.
+
+**What it cost:** "list the open invoices over $1,000" could return the first
+hundred and read exactly like all of them. `get_select_list` had the same shape:
+it set a `truncated` flag but offered nothing an operator would notice. A wrong
+answer that looks right is the failure mode that actually harms a business.
+
+**The fix:** both tools now return `is_complete`, and when the answer was capped
+they carry a `warning` in plain language naming the limit and how to raise it. A
+`COUNT` is marked complete, because nothing was truncated. An explicit `SAMPLE`
+supplied by the caller is still respected rather than doubled.
+
+**Proof:** `tests/test_tools/test_query.py::TestResultCompleteness`
+
+## Finding 4 — a timed-out query kept running
+
+**Where:** `ConnectionManager.execute_command()`
+
+**What happened:** the command ran on a daemon thread, and the caller waited on an
+event with a timeout. When the timeout fired, a `TimeoutError` was raised — and
+that was all. The thread stayed alive, the query kept running on the server, and
+the session it was using was handed straight to the next request.
+
+**What it cost:** three compounding problems. The database kept doing work nobody
+was waiting for. Abandoned threads accumulated under load. And the next request
+reused a session with an in-flight command on it, so replies could interleave.
+
+**The fix:** uopy exposes no way to cancel a command in flight, so the honest
+remedy is to close the session the query is running on. The socket drops, the
+server abandons the command, and the reconnect repaired in Finding 2 makes the
+next request safe. Commands are now also serialized with a lock, because a uopy
+session is a single conversation with the server. Abandoned queries are counted and
+exposed as `abandoned_query_count`, so a rising number is visible rather than silent.
+
+**Proof:** `tests/test_connection.py::TestQueryTimeouts` and
+`::TestConcurrentCommands`
+
 ## Still to come
 
 - Per-user database identity, so the database's own security sees the real caller
 - Audit records that name the authenticated user rather than a per-process session id
 - Durable OAuth state, so a restart does not sign everyone out
-- Query timeouts that actually cancel the work they abandon
-- Truncation that is reported rather than silent
-- Test coverage for the tool layer
+- Test coverage for the remaining tool modules
