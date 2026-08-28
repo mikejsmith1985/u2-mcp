@@ -1,0 +1,42 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp-baseline\.venv\Scripts\python.exe
+rootdir: C:\ProjectsWin\u2-mcp-baseline
+configfile: pyproject.toml
+plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/test_connection.py::TestOutputSanitization::test_accented_customer_names_survive FAILED [ 50%]
+tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive FAILED [100%]
+
+================================== FAILURES ===================================
+_________ TestOutputSanitization.test_accented_customer_names_survive _________
+
+self = <tests.test_connection.TestOutputSanitization object at 0x000001D6199C34A0>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001D61ADA4170>
+
+    def test_accented_customer_names_survive(self, connection_manager: ConnectionManager) -> None:
+        """Non-ASCII letters in real customer data are preserved, not stripped."""
+        cleaned = connection_manager._sanitize_output("MÜLLER GmbH" + chr(254) + "José Peña")
+    
+>       assert "MÜLLER GmbH" in cleaned
+E       AssertionError: assert 'MÜLLER GmbH' in 'MLLER GmbH\nJos Pea'
+
+tests\test_connection.py:129: AssertionError
+____________ TestOutputSanitization.test_currency_symbols_survive _____________
+
+self = <tests.test_connection.TestOutputSanitization object at 0x000001D6199C3230>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000001D61B7ADC10>
+
+    def test_currency_symbols_survive(self, connection_manager: ConnectionManager) -> None:
+        """Currency symbols in amounts are preserved, not silently deleted."""
+        cleaned = connection_manager._sanitize_output("Total: £1,250.00 / €1,430.55 / ¥98,000")
+    
+>       assert "£1,250.00" in cleaned
+E       AssertionError: assert '£1,250.00' in 'Total: 1,250.00 / 1,430.55 / 98,000'
+
+tests\test_connection.py:136: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_connection.py::TestOutputSanitization::test_accented_customer_names_survive
+FAILED tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive
+============================== 2 failed in 1.04s ==============================

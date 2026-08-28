@@ -1,0 +1,36 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp-baseline\.venv\Scripts\python.exe
+rootdir: C:\ProjectsWin\u2-mcp-baseline
+configfile: pyproject.toml
+plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive FAILED [100%]
+
+================================== FAILURES ===================================
+_ TestConnectionLifecycle.test_get_session_reconnects_when_session_went_inactive _
+
+self = <tests.test_connection.TestConnectionLifecycle object at 0x0000018CE5ABC2C0>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000018CE5ABC380>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000018CE5A8FDD0>
+
+    def test_get_session_reconnects_when_session_went_inactive(
+        self, connection_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """A dead session is replaced rather than handed back to the caller."""
+        connection_manager.connect()
+        mock_uopy.is_active = False
+    
+        session = connection_manager.get_session()
+    
+>       assert session.is_active is True
+               ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'is_active'
+
+tests\test_connection.py:49: AttributeError
+------------------------------ Captured log call ------------------------------
+WARNING  u2_mcp.connection:connection.py:197 Connection lost, attempting reconnect
+=========================== short test summary info ===========================
+FAILED tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive
+============================== 1 failed in 0.39s ==============================
