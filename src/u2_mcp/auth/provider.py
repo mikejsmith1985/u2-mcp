@@ -7,7 +7,7 @@ bridging to external identity providers (Duo, Auth0, generic OIDC).
 import logging
 import secrets
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -58,7 +58,7 @@ class U2OAuthProvider(
         callback_path: str = "/oauth/callback",
         token_expiry: int = 3600,
         refresh_token_expiry: int = 86400 * 30,  # 30 days
-        storage: InMemoryAuthStorage | None = None,
+        storage: Any | None = None,
     ):
         """Initialize the OAuth provider.
 
@@ -68,7 +68,8 @@ class U2OAuthProvider(
             callback_path: Path for IdP callback (default /oauth/callback)
             token_expiry: Access token lifetime in seconds (default 1 hour)
             refresh_token_expiry: Refresh token lifetime in seconds (default 30 days)
-            storage: Auth state storage (default InMemoryAuthStorage)
+            storage: Auth state store; defaults to the in-memory one, which is
+                lost on restart. Pass a durable store for shared deployments.
         """
         self.idp_adapter = idp_adapter
         self.issuer_url = issuer_url.rstrip("/")

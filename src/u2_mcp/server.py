@@ -330,6 +330,7 @@ def run_streamable_http_server() -> None:
     from .auth.callback import handle_oauth_callback
     from .auth.idp import create_idp_adapter
     from .auth.provider import U2OAuthProvider
+    from .auth.storage import create_auth_storage
 
     config = U2Config()
 
@@ -357,6 +358,7 @@ def run_streamable_http_server() -> None:
             issuer_url=config.auth_issuer_url,
             token_expiry=config.token_expiry_seconds,
             refresh_token_expiry=config.refresh_token_expiry_seconds,
+            storage=create_auth_storage(config.auth_storage, config.auth_storage_path),
         )
 
         # Configure auth settings for FastMCP

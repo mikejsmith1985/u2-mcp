@@ -153,6 +153,21 @@ class U2Config(BaseSettings):
         description="Duo API hostname (e.g., api-XXXXXXXX.duosecurity.com)",
     )
 
+    # OAuth state storage
+    auth_storage: str = Field(
+        default="memory",
+        alias="U2_AUTH_STORAGE",
+        description=(
+            "Where OAuth state lives: 'memory' (lost on restart) or 'sqlite' "
+            "(durable, and shared by several workers on one host)"
+        ),
+    )
+    auth_storage_path: str = Field(
+        default="~/.u2-mcp/auth.db",
+        alias="U2_AUTH_STORAGE_PATH",
+        description="Database file for OAuth state when U2_AUTH_STORAGE is 'sqlite'",
+    )
+
     # Token settings
     token_expiry_seconds: int = Field(
         default=3600,

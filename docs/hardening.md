@@ -137,6 +137,41 @@ exposed as `abandoned_query_count`, so a rising number is visible rather than si
 **Proof:** `tests/test_connection.py::TestQueryTimeouts` and
 `::TestConcurrentCommands`
 
+## Finding 5 — authentication state did not survive a restart
+
+**Where:** `auth/storage.py::InMemoryAuthStorage`
+
+**What happened:** every registered client, issued token and in-flight login was
+held in dictionaries on the process. The class documents this honestly, but the
+consequences are heavier than they first appear.
+
+**What it cost:** three things. A restart -- a deploy, a crash, a patch window --
+signed every user out and forced them back through the identity provider. The
+service could not be made redundant, because a second instance behind a load
+balancer would reject tokens the first had issued. And there was no way to revoke
+a token except by restarting, which revoked everyone's.
+
+**The fix:** `SQLiteAuthStorage` implements the same surface against a file.
+SQLite is in the standard library, so no dependency was added, and it covers the
+common case of several workers on one host. Two deliberate choices go beyond
+merely persisting:
+
+- **Bearer tokens are stored as SHA-256 hashes, never in the clear.** The lookup
+  is by hash, and the raw value is put back on the returned object for the caller.
+  A stolen database file therefore yields no usable credentials -- the same reason
+  passwords are not stored in the clear. Upstream held raw tokens in memory, which
+  was survivable; writing them to disk would not have been.
+- **Both backends answer to one contract test suite**, run twice over a fixture
+  parameter, so choosing a backend cannot change how authentication behaves.
+
+The in-memory store remains the default and now logs a warning naming what it
+gives up. For deployments spread across hosts, this same interface is the seam a
+Redis or Postgres backend would implement.
+
+**Proof:** `tests/test_auth/test_storage.py` -- 35 tests, including a restart
+simulated with a second instance on the same file, and an assertion that the raw
+token bytes never appear in the database.
+
 ## Still to come
 
 - Per-user database identity, so the database's own security sees the real caller

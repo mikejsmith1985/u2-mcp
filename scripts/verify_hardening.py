@@ -98,6 +98,19 @@ FIXES: list[Fix] = [
             "tests/test_connection.py::TestQueryTimeouts",
         ],
     ),
+    Fix(
+        key="H5",
+        title="OAuth state was lost on restart, and could not be shared",
+        impact=(
+            "Every registration, token and in-flight login lived in process memory. A "
+            "restart signed everyone out, and a second instance behind a load balancer "
+            "would not recognise the first one's tokens -- so the service could not be "
+            "made redundant."
+        ),
+        tests=[
+            "tests/test_auth/test_storage.py::TestDurability",
+        ],
+    ),
 ]
 
 

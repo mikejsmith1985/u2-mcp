@@ -9,4 +9,4 @@ collecting ... collected 2 items
 tests/test_connection.py::TestOutputSanitization::test_accented_customer_names_survive PASSED [ 50%]
 tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive PASSED [100%]
 
-============================== 2 passed in 0.36s ==============================
+============================== 2 passed in 0.35s ==============================

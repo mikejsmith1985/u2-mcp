@@ -4,8 +4,10 @@ rootdir: C:\ProjectsWin\u2-mcp
 configfile: pyproject.toml
 plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collecting ... collected 1 item
+collecting ... collected 3 items
 
-tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive PASSED [100%]
+tests/test_auth/test_storage.py::TestDurability::test_tokens_survive_a_restart PASSED [ 33%]
+tests/test_auth/test_storage.py::TestDurability::test_raw_tokens_are_never_written_to_disk PASSED [ 66%]
+tests/test_auth/test_storage.py::TestDurability::test_expired_entries_are_purged_from_disk PASSED [100%]
 
-============================== 1 passed in 0.37s ==============================
+============================== 3 passed in 0.37s ==============================

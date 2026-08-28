@@ -43,6 +43,15 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Added
 
+- **Durable OAuth state** **[proven]**
+  Registrations, tokens and in-flight logins lived only in process memory, so a
+  restart signed everyone out and a second instance could not recognise the
+  first one's tokens. `SQLiteAuthStorage` keeps the same behaviour in a file:
+  set `U2_AUTH_STORAGE=sqlite` (path via `U2_AUTH_STORAGE_PATH`). Bearer tokens
+  are stored as SHA-256 hashes, so a stolen database file yields no usable
+  credentials. SQLite is in the standard library, so this adds no dependency.
+  Both backends are held to one shared contract test suite.
+
 - **Test doubles that match the code they double.** The previous mocks modelled an
   obsolete `uopy` API (`session.open()`, `cmd.exec()`, `session.transaction_start()`)
   that the server has not called for some time, which is why `tests/test_tools/`
