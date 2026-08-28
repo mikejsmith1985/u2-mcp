@@ -11,9 +11,9 @@ tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_w
 ================================== FAILURES ===================================
 _ TestConnectionLifecycle.test_get_session_reconnects_when_session_went_inactive _
 
-self = <tests.test_connection.TestConnectionLifecycle object at 0x000002890CF48950>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x000002890CF48AD0>
-mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x000002890CF1FD70>
+self = <tests.test_connection.TestConnectionLifecycle object at 0x0000025D12518980>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000025D12518A40>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000025D124EBE00>
 
     def test_get_session_reconnects_when_session_went_inactive(
         self, connection_manager: ConnectionManager, mock_uopy: MockSession
@@ -33,4 +33,4 @@ tests\test_connection.py:49: AttributeError
 WARNING  u2_mcp.connection:connection.py:197 Connection lost, attempting reconnect
 =========================== short test summary info ===========================
 FAILED tests/test_connection.py::TestConnectionLifecycle::test_get_session_reconnects_when_session_went_inactive
-============================== 1 failed in 0.40s ==============================
+============================== 1 failed in 0.44s ==============================

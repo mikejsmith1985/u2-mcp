@@ -23,6 +23,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class IdentityError(Exception):
+    """Raised when the caller of an authenticated request cannot be identified."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class CallerIdentity:
     """The person or client behind the current request.
@@ -95,26 +101,37 @@ def set_identity_resolver(resolver: Callable[[], CallerIdentity | None] | None) 
 def current_caller() -> CallerIdentity:
     """Return the caller behind the current request.
 
-    Falls back to the local operator when no authentication is in play, which is
-    the normal case for stdio mode.
+    Where no resolver is installed there is no authentication in play -- stdio
+    mode -- and the caller is the local operator. Where a resolver *is* installed,
+    the server is running authenticated, and a failure to identify the caller is
+    refused rather than downgraded: falling back to the local operator would let
+    someone launder their identity out of the audit trail by making resolution
+    fail, and would hand them whatever the unauthenticated path is allowed.
 
     Returns:
         The current CallerIdentity, never None
+
+    Raises:
+        IdentityError: If authentication is in force and the caller cannot be named
     """
     scoped = _caller_var.get()
     if scoped is not None:
         return scoped
 
-    if _identity_resolver is not None:
-        try:
-            resolved = _identity_resolver()
-        except Exception as exc:  # noqa: BLE001 - identity must never break a request
-            logger.warning(f"Could not identify caller: {exc}")
-            resolved = None
-        if resolved is not None:
-            return resolved
+    if _identity_resolver is None:
+        return LOCAL_CALLER
 
-    return LOCAL_CALLER
+    try:
+        resolved = _identity_resolver()
+    except Exception as exc:
+        logger.error(f"Could not identify the caller of an authenticated request: {exc}")
+        raise IdentityError("The caller of this request could not be identified") from exc
+
+    if resolved is None:
+        logger.error("An authenticated request presented a token that names no known user")
+        raise IdentityError("The caller of this request could not be identified")
+
+    return resolved
 
 
 @contextlib.contextmanager

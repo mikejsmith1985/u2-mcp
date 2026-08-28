@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import OrderedDict
 from typing import Any
 
 from .config import U2Config
@@ -38,7 +39,9 @@ class ConnectionRegistry:
     def __init__(self, config: U2Config, resolver: CredentialResolver | None = None) -> None:
         self._config = config
         self._resolver: CredentialResolver = resolver or SharedCredentialResolver(config)
-        self._managers: dict[str, ConnectionManager] = {}
+        # Ordered by least-recently-used, so the eviction victim is obvious.
+        self._managers: OrderedDict[str, ConnectionManager] = OrderedDict()
+        self._max_connections = max(1, int(getattr(config, "max_connections", 25)))
         self._lock = threading.RLock()
 
     @property
@@ -61,13 +64,34 @@ class ConnectionRegistry:
         credentials = self._resolver.resolve(caller)
         with self._lock:
             manager = self._managers.get(credentials.pool_key)
-            if manager is None:
-                manager = ConnectionManager(self._config, credentials)
-                self._managers[credentials.pool_key] = manager
-                logger.info(
-                    f"Opened connection slot '{credentials.pool_key}' for {caller.display_name}"
-                )
+            if manager is not None:
+                self._managers.move_to_end(credentials.pool_key)
+                return manager
+
+            self._evict_until_below_limit()
+            manager = ConnectionManager(self._config, credentials)
+            self._managers[credentials.pool_key] = manager
+            logger.info(
+                f"Opened connection slot '{credentials.pool_key}' for {caller.display_name} "
+                f"({len(self._managers)}/{self._max_connections} in use)"
+            )
             return manager
+
+    def _evict_until_below_limit(self) -> None:
+        """Close least-recently-used connections so a new one can be opened.
+
+        Without a ceiling, one connection per caller becomes one connection per
+        caller *ever seen*, and a crowd of authenticated users could exhaust the
+        database's own connection limit. Callers whose slot is evicted simply
+        reconnect on their next request.
+        """
+        while len(self._managers) >= self._max_connections:
+            evicted_key, evicted = self._managers.popitem(last=False)
+            logger.info(f"Evicting least recently used connection slot '{evicted_key}'")
+            try:
+                evicted.disconnect_all()
+            except Exception as exc:  # noqa: BLE001 - eviction must not fail the request
+                logger.warning(f"Error closing evicted connection '{evicted_key}': {exc}")
 
     def current(self) -> ConnectionManager:
         """Return the connection manager for the caller of the current request."""

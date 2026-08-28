@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -167,18 +168,51 @@ class MappedCredentialResolver:
                 f"to {self._map_path} to grant this person access."
             )
 
-        missing = [key for key in ("user", "password") if not entry.get(key)]
-        if missing:
-            raise CredentialError(
-                f"Credential map entry for '{caller.subject}' is missing: {', '.join(missing)}"
-            )
+        if not entry.get("user"):
+            raise CredentialError(f"Credential map entry for '{caller.subject}' is missing: user")
 
         return U2Credentials(
             user=entry["user"],
-            password=entry["password"],
+            password=self._password_for(caller.subject, entry),
             account=entry.get("account") or self._default_account,
             is_shared=False,
         )
+
+    @staticmethod
+    def _password_for(subject: str, entry: dict[str, str]) -> str:
+        """Return the password for one entry, preferring the environment.
+
+        An entry may name an environment variable with `password_env` instead of
+        carrying `password` inline, so an operator can keep secrets in a vault or
+        a systemd credential rather than in a file on disk. Error messages name
+        only the caller and the variable, never a credential.
+
+        Args:
+            subject: Who the entry belongs to, for error messages
+            entry: The credential map entry
+
+        Returns:
+            The password to connect with
+
+        Raises:
+            CredentialError: If no password can be found
+        """
+        variable = entry.get("password_env")
+        if variable:
+            value = os.environ.get(variable)
+            if not value:
+                raise CredentialError(
+                    f"Credential map entry for '{subject}' names environment variable "
+                    f"'{variable}', which is not set."
+                )
+            return value
+
+        password = entry.get("password")
+        if not password:
+            raise CredentialError(
+                f"Credential map entry for '{subject}' has neither 'password' nor 'password_env'."
+            )
+        return password
 
 
 def create_credential_resolver(config: U2Config) -> CredentialResolver:

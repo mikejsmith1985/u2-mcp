@@ -19,6 +19,6 @@ tests\test_auth\test_storage.py:15: in <module>
 E   ModuleNotFoundError: No module named 'u2_mcp.auth.sqlite_storage'
 =========================== short test summary info ===========================
 ERROR tests/test_auth/test_storage.py
-============================== 1 error in 0.48s ===============================
+============================== 1 error in 0.52s ===============================
 ERROR: found no collectors for C:\ProjectsWin\u2-mcp-baseline\tests\test_auth\test_storage.py::TestDurability
 

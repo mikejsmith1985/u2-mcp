@@ -266,4 +266,72 @@ the production code never uses -- the same drift as Finding 0, one layer down.
 And `delete_knowledge` requires confirmation, which is good behaviour that was
 nowhere asserted; it is now.
 
+## Reviewing the remediation itself
+
+Every fix above is new code, and new code is new attack surface. Proving the
+original defects are gone says nothing about whether closing them opened
+something else, so the fixes were reviewed as adversarially as the original code.
+
+Three things were done. `bandit` was run across `src/` and reported no high or
+medium findings beyond a pre-existing default of binding to all interfaces.
+Each new mechanism was then examined for what happens when it *fails*, on the
+principle that a security control is only as good as its failure mode. Finally
+`tests/test_hardening_regressions.py` attacks the remediations directly.
+
+Four defects were found in the remediation. All four are fixed, and all four
+were introduced by this fork rather than inherited.
+
+### R1 — the durable auth store reintroduced authorization-code replay
+
+The in-memory store consumed a one-time code with `dict.pop()`, which is atomic.
+The SQLite backend replaced that with a `SELECT` followed by a separate `DELETE`,
+leaving a window in which two requests both read the code before either removed
+it.
+
+A timing test alone did not catch this: the window is small enough that a naive
+race usually loses, and the first version of the test passed while the bug was
+present. Widening the window deliberately — delaying the read, then racing forty
+threads — made it unambiguous: **forty threads exchanged the same authorization
+code**. It is now claimed atomically with `DELETE ... RETURNING`, and the same
+test yields exactly one success.
+
+This is the most serious finding in the document, and it was one this fork
+created. It is worth stating plainly: making state durable is not a
+behaviour-preserving change, because atomicity that came free in memory has to
+be re-established explicitly in a database.
+
+### R2 — identity resolution failed open
+
+`current_caller()` caught every exception from the resolver and fell back to the
+unauthenticated local operator. In `mapped` mode that failed closed by accident,
+because the local caller has no mapped login — but in `shared` mode a caller who
+could make token lookup fail would still reach the database and have their
+actions recorded as `local`, which is identity laundering against the audit
+trail the fork had just added.
+
+Resolution now distinguishes two situations. No resolver installed means stdio
+mode, where the local operator is the honest answer. A resolver installed means
+authentication is in force, and a failure to name the caller raises rather than
+downgrading.
+
+### R3 — files holding credentials were world-readable
+
+The OAuth database and its directory were created with default permissions. They
+are now restricted to their owner where the operating system enforces that;
+Windows ignores POSIX bits, so the test is skipped there and the deployment
+documentation carries the ACL requirement instead.
+
+### R4 — per-user connections grew without limit
+
+One connection per caller becomes one connection per caller *ever seen*, which a
+crowd of authenticated users could turn into exhaustion of the database's own
+connection limit. The registry now holds a bounded, least-recently-used set
+governed by `U2_MAX_CONNECTIONS`; an evicted caller simply reconnects on their
+next request.
+
+A related weakness was addressed at the same time: the credential map held
+plaintext passwords on disk with no alternative. An entry may now name an
+environment variable with `password_env` instead, so the password can come from a
+vault or a systemd credential, and error messages never echo the map's contents.
+
 ## Still to come

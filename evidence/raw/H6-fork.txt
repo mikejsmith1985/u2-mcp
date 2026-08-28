@@ -13,4 +13,4 @@ tests/test_utils/test_audit.py::TestAttribution::test_unauthenticated_use_is_rec
 tests/test_utils/test_audit.py::TestDatabaseLoginRecording::test_the_login_used_is_recorded PASSED [ 83%]
 tests/test_utils/test_audit.py::TestDatabaseLoginRecording::test_a_shared_login_is_flagged_on_every_record PASSED [100%]
 
-============================== 6 passed in 0.15s ==============================
+============================== 6 passed in 0.18s ==============================

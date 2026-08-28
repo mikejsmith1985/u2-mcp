@@ -163,6 +163,14 @@ class U2Config(BaseSettings):
             "authenticated person uses their own Universe login)"
         ),
     )
+    max_connections: int = Field(
+        default=25,
+        alias="U2_MAX_CONNECTIONS",
+        description=(
+            "Most database sessions to hold open at once. In mapped mode each person "
+            "holds one, so this bounds what a crowd of callers can consume."
+        ),
+    )
     credential_map_path: str = Field(
         default="~/.u2-mcp/credentials.json",
         alias="U2_CREDENTIAL_MAP_PATH",

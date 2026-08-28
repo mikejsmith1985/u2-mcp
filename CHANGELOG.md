@@ -9,6 +9,31 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ## [Unreleased]
 
+### Security
+
+- **Authorization codes can no longer be replayed** (defect introduced by this
+  fork's own durable-storage change). Consuming a one-time code was a `SELECT`
+  followed by a separate `DELETE`, replacing an atomic `dict.pop()`. Racing forty
+  threads through a deliberately widened window let all forty exchange the same
+  code. Codes and pending authorization state are now claimed atomically with
+  `DELETE ... RETURNING`.
+
+- **Identity resolution now fails closed.** A resolver error fell back to the
+  unauthenticated local operator, which would let a caller launder their identity
+  out of the audit trail. With no resolver installed the local operator is still
+  the honest answer for stdio mode; with one installed, a failure to name the
+  caller raises.
+
+- **Files holding credentials are restricted to their owner** where the operating
+  system enforces permissions.
+
+- **Per-user connections are bounded** by `U2_MAX_CONNECTIONS` (default 25) on a
+  least-recently-used basis, so a crowd of callers cannot exhaust the database's
+  connection limit.
+
+- **Credential map entries may name an environment variable** with `password_env`
+  instead of storing a password on disk, and errors never echo the map's contents.
+
 ### Fixed
 
 - **Non-ASCII business data is no longer deleted from query output** **[proven]**

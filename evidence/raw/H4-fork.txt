@@ -11,4 +11,4 @@ tests/test_connection.py::TestQueryTimeouts::test_timeout_tears_down_the_session
 tests/test_connection.py::TestQueryTimeouts::test_next_request_after_a_timeout_still_works PASSED [ 75%]
 tests/test_connection.py::TestQueryTimeouts::test_abandoned_queries_are_counted PASSED [100%]
 
-============================== 4 passed in 0.65s ==============================
+============================== 4 passed in 0.66s ==============================

@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import secrets
 import sqlite3
 import threading
@@ -91,6 +92,7 @@ class SQLiteAuthStorage:
     def __init__(self, db_path: Path | str, cleanup_interval: int = 300) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        _restrict_to_owner(self.db_path.parent)
         self._cleanup_interval = cleanup_interval
         self._last_cleanup = time.time()
         self._lock = threading.RLock()
@@ -99,6 +101,7 @@ class SQLiteAuthStorage:
         with self._lock:
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
+        _restrict_to_owner(self.db_path)
         logger.info(f"OAuth state persisted to {self.db_path}")
 
     # -- plumbing -----------------------------------------------------------
@@ -114,6 +117,31 @@ class SQLiteAuthStorage:
         """Run a query expected to match at most one row."""
         with self._lock:
             row: sqlite3.Row | None = self._connection.execute(sql, parameters).fetchone()
+            return row
+
+    def _claim_one(self, table: str, key_column: str, key_hash: str) -> sqlite3.Row | None:
+        """Read a single-use row and delete it in one indivisible step.
+
+        Reading and then deleting as two operations leaves a window in which two
+        threads both read the row before either deletes it -- which would let one
+        authorization code be exchanged twice. `DELETE ... RETURNING` makes the
+        claim atomic; the lock additionally serializes writers on this connection.
+
+        Args:
+            table: Table holding single-use rows
+            key_column: Hashed-key column to match on
+            key_hash: The hashed key to claim
+
+        Returns:
+            The claimed row, or None if another caller claimed it first
+        """
+        with self._lock:
+            cursor = self._connection.execute(
+                f"DELETE FROM {table} WHERE {key_column} = ? RETURNING payload",  # noqa: S608
+                (key_hash,),
+            )
+            row: sqlite3.Row | None = cursor.fetchone()
+            self._connection.commit()
             return row
 
     def _maybe_cleanup(self) -> None:
@@ -182,9 +210,7 @@ class SQLiteAuthStorage:
 
     def get_auth_code(self, code: str) -> StoredAuthCode | None:
         """Retrieve and consume an authorization code (one-time use)."""
-        code_hash = hash_secret(code)
-        row = self._read_one("SELECT payload FROM auth_codes WHERE code_hash = ?", (code_hash,))
-        self._write("DELETE FROM auth_codes WHERE code_hash = ?", (code_hash,))
+        row = self._claim_one("auth_codes", "code_hash", hash_secret(code))
         if row is None:
             return None
         stored = StoredAuthCode(**json.loads(row["payload"]))
@@ -277,9 +303,7 @@ class SQLiteAuthStorage:
 
     def get_pending_auth(self, state: str) -> PendingAuthorization | None:
         """Retrieve and consume pending authorization state (one-time use)."""
-        state_hash = hash_secret(state)
-        row = self._read_one("SELECT payload FROM pending_auth WHERE state_hash = ?", (state_hash,))
-        self._write("DELETE FROM pending_auth WHERE state_hash = ?", (state_hash,))
+        row = self._claim_one("pending_auth", "state_hash", hash_secret(state))
         if row is None:
             return None
         stored = PendingAuthorization(**json.loads(row["payload"]))
@@ -316,6 +340,24 @@ class SQLiteAuthStorage:
                 name: int(self._connection.execute(sql).fetchone()[0])
                 for name, sql in counts.items()
             }
+
+
+def _restrict_to_owner(path: Path) -> None:
+    """Restrict a file or directory holding credentials to its owner.
+
+    On POSIX this is enforced with permission bits. Windows ignores them, so the
+    caller must rely on directory ACLs there; the attempt is still made rather
+    than skipped, and a failure is logged rather than raised, because failing to
+    tighten permissions must not stop the server from starting.
+
+    Args:
+        path: File or directory to restrict
+    """
+    mode = 0o700 if path.is_dir() else 0o600
+    try:
+        os.chmod(path, mode)
+    except OSError as exc:
+        logger.warning(f"Could not restrict permissions on {path}: {exc}")
 
 
 def _redirect_key(redirect_uris: list[str]) -> str:

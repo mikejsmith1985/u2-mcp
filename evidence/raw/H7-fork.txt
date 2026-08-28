@@ -27,4 +27,4 @@ tests/test_identity.py::TestMappedCredentials::test_missing_map_is_refused_at_st
 tests/test_identity.py::TestResolverSelection::test_shared_is_the_default PASSED [ 95%]
 tests/test_identity.py::TestResolverSelection::test_unknown_mode_is_refused PASSED [100%]
 
-============================= 20 passed in 0.11s ==============================
+============================= 20 passed in 0.13s ==============================

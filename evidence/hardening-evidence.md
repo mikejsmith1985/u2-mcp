@@ -1,6 +1,6 @@
 # Hardening evidence
 
-Generated 2026-08-28 18:37 UTC by `scripts/verify_hardening.py`.
+Generated 2026-08-28 18:48 UTC by `scripts/verify_hardening.py`.
 
 Each fix below is measured with the same tests against two checkouts: the upstream code at `f427768`, and this fork. A fix counts as proven only when its tests fail on the original and pass here.
 

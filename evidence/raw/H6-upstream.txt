@@ -19,7 +19,7 @@ tests\test_utils\test_audit.py:14: in <module>
 E   ModuleNotFoundError: No module named 'u2_mcp.credentials'
 =========================== short test summary info ===========================
 ERROR tests/test_utils/test_audit.py
-============================== 1 error in 0.06s ===============================
+============================== 1 error in 0.09s ===============================
 ERROR: found no collectors for C:\ProjectsWin\u2-mcp-baseline\tests\test_utils\test_audit.py::TestAttribution
 
 ERROR: found no collectors for C:\ProjectsWin\u2-mcp-baseline\tests\test_utils\test_audit.py::TestDatabaseLoginRecording
