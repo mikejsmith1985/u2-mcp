@@ -462,4 +462,54 @@ worse than none, because it looks complete.
 Writes are now serialized, and each record is emitted as one complete line in a
 single write.
 
+## Fuzzing, and a review of this fork as a stranger would read it
+
+Two passes remained after the scenario suites: properties checked against inputs
+nobody would write by hand, and a read-through of this fork's own diff as though
+it were someone else's pull request. Both found defects.
+
+### Property-based fuzzing
+
+`tests/edge/test_fuzz_parsers.py` states 21 properties and checks each against
+hundreds of generated inputs drawn from the whole of Unicode, including the
+MultiValue delimiters themselves. The properties are chosen so that a failure is
+always a real defect: parsers never raise, output is always JSON-encodable, no
+delimiter or control character ever survives sanitizing, sanitizing is
+idempotent, and a blocked verb is refused however it is dressed.
+
+**Finding 15 — punctuation disguised a blocked verb.** The fuzzer produced
+`basic:`, which was allowed. The verb was taken by splitting on whitespace, so
+`BASIC:` did not match `BASIC` and passed. Every blocked verb could be disguised
+the same way, which quietly undid Finding 10 for anyone who thought to try it.
+The verb is now the leading run of the characters a verb is made of, stopping at
+the first character that is not one, so punctuation cannot hide it.
+
+This is exactly the defect class hand-written tests miss. Nobody writes `SH:` as
+a test case, because nobody types it.
+
+### Reading the diff as a stranger
+
+**Finding 16 — the server restricted a directory it did not create.** Tightening
+permissions on the OAuth database was right; doing the same to its parent was
+not. Pointing `U2_AUTH_STORAGE_PATH` at a shared location would have set that
+directory to owner-only, locking out everything else using it. Only a directory
+this server creates is restricted now.
+
+**Finding 17 — a slow eviction froze every caller.** The registry closed an
+evicted connection while holding its lock. The connection being evicted is often
+the one that stopped responding, so closing it can block for the length of a
+network timeout while every other caller waits behind it. Slots are now removed
+under the lock and closed outside it.
+
+**Finding 18 — writing an audit record opened a connection slot.**
+`_current_login` asked the registry for the caller's connection manager, and
+asking creates a slot. Recording that work had happened could therefore evict
+somebody else's session. Credentials are now resolved directly, with no side
+effect.
+
+Findings 16 to 18 were all introduced by this fork, and none of them would have
+been found by running the tests. They came from reading the code again with one
+question in mind: what else does this touch?
+
 ## Still to come
+

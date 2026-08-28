@@ -68,30 +68,49 @@ class ConnectionRegistry:
                 self._managers.move_to_end(credentials.pool_key)
                 return manager
 
-            self._evict_until_below_limit()
+            evicted = self._take_evictable_managers()
             manager = ConnectionManager(self._config, credentials)
             self._managers[credentials.pool_key] = manager
             logger.info(
                 f"Opened connection slot '{credentials.pool_key}' for {caller.display_name} "
                 f"({len(self._managers)}/{self._max_connections} in use)"
             )
-            return manager
 
-    def _evict_until_below_limit(self) -> None:
-        """Close least-recently-used connections so a new one can be opened.
+        # Closing happens outside the lock. The connection being evicted may be
+        # the one that stopped responding, and closing a wedged socket can block
+        # for as long as the network timeout -- which would freeze every caller.
+        self._close_evicted(evicted)
+        return manager
+
+    def _take_evictable_managers(self) -> list[tuple[str, ConnectionManager]]:
+        """Remove least-recently-used slots to make room, without closing them.
 
         Without a ceiling, one connection per caller becomes one connection per
         caller *ever seen*, and a crowd of authenticated users could exhaust the
         database's own connection limit. Callers whose slot is evicted simply
         reconnect on their next request.
+
+        Returns:
+            The removed slots, for the caller to close outside the lock
         """
+        evicted: list[tuple[str, ConnectionManager]] = []
         while len(self._managers) >= self._max_connections:
-            evicted_key, evicted = self._managers.popitem(last=False)
-            logger.info(f"Evicting least recently used connection slot '{evicted_key}'")
+            evicted.append(self._managers.popitem(last=False))
+        return evicted
+
+    @staticmethod
+    def _close_evicted(evicted: list[tuple[str, ConnectionManager]]) -> None:
+        """Close connections already removed from the registry.
+
+        Args:
+            evicted: Slots removed by _take_evictable_managers
+        """
+        for key, manager in evicted:
+            logger.info(f"Evicting least recently used connection slot '{key}'")
             try:
-                evicted.disconnect_all()
+                manager.disconnect_all()
             except Exception as exc:  # noqa: BLE001 - eviction must not fail the request
-                logger.warning(f"Error closing evicted connection '{evicted_key}': {exc}")
+                logger.warning(f"Error closing evicted connection '{key}': {exc}")
 
     def current(self) -> ConnectionManager:
         """Return the connection manager for the caller of the current request."""

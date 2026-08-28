@@ -12,6 +12,8 @@ convenience. Two principles govern it:
   every escape route is enumerated below with the reason it is there.
 """
 
+import re
+
 # Commands that leave the database and reach the operating system, another
 # account, or the compiler. Any one of these turns database access into control
 # of the host, so they are blocked even when write operations are permitted.
@@ -93,6 +95,11 @@ DEFAULT_BLOCKED_COMMANDS: set[str] = (
 # Characters that begin a shell escape rather than a command word.
 ESCAPE_PREFIXES: tuple[str, ...] = ("!", "$", "|", "`", ">", "<", "&", ";")
 
+# The characters a TCL verb is made of. Matching the leading run of these -- and
+# stopping at the first character that is not one -- means punctuation attached
+# to a verb cannot disguise it: `basic:` is recognised as BASIC.
+_LEADING_VERB = re.compile(r"[A-Za-z0-9._-]+")
+
 # Commands that modify data (blocked in read-only mode)
 WRITE_COMMANDS: set[str] = {
     "DELETE",
@@ -139,23 +146,26 @@ class CommandValidator:
     def _first_word(command: str) -> str:
         """Return the leading verb of a command, normalized for comparison.
 
-        Leading whitespace and case must not change a verdict, and a command
-        beginning with a shell metacharacter has no verb at all -- `!ls` is a
-        shell escape whose first word would otherwise read as the harmless-looking
-        token `!LS`.
+        Three things must not change a verdict: leading whitespace, case, and
+        punctuation attached to the verb. `basic:` is the command `BASIC`, and
+        splitting on whitespace alone would read it as the unrecognised token
+        `BASIC:` and let it through. A command beginning with a shell
+        metacharacter has no verb at all -- `!ls` is a shell escape.
 
         Args:
             command: The raw command string
 
         Returns:
-            The upper-case leading word, or the escape character itself
+            The upper-case verb, the escape character, or "" if there is no verb
         """
         stripped = command.strip()
         if not stripped:
             return ""
         if stripped.startswith(ESCAPE_PREFIXES):
             return stripped[0]
-        return stripped.split()[0].upper()
+
+        match = _LEADING_VERB.match(stripped)
+        return match.group(0).upper() if match else ""
 
     def validate(self, command: str) -> tuple[bool, str]:
         """Validate a TCL command.

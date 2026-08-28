@@ -13,7 +13,12 @@ from .config import U2Config
 from .connection import ConnectionError, ConnectionManager
 from .credentials import create_credential_resolver
 from .exposure import check_network_exposure
-from .identity import CallerIdentity, caller_from_stored_token, set_identity_resolver
+from .identity import (
+    CallerIdentity,
+    caller_from_stored_token,
+    current_caller,
+    set_identity_resolver,
+)
 from .registry import ConnectionRegistry
 from .utils.audit import audit_tool_call, get_audit_logger, init_audit_logger
 from .utils.watchdog import ConnectionWatchdog, get_watchdog, init_watchdog
@@ -100,11 +105,17 @@ def _install_identity_resolver(auth_provider: Any) -> None:
 def _current_login() -> Any | None:
     """Return the database login the current request is using, for the audit trail.
 
-    Returns None when no connection could be resolved, so audit logging never
-    becomes the reason a tool call fails.
+    The credentials are resolved directly rather than through the connection
+    registry: asking the registry would open a connection slot as a side effect,
+    so recording that work happened could displace somebody else's session.
+
+    Returns None when no login can be determined, so audit logging never becomes
+    the reason a tool call fails.
     """
     try:
-        return get_connection_manager().credentials
+        if _connection_manager is not None:
+            return _connection_manager.credentials
+        return get_connection_registry().resolver.resolve(current_caller())
     except Exception:  # noqa: BLE001 - auditing must not break the call it records
         return None
 

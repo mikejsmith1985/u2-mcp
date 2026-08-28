@@ -96,8 +96,13 @@ class SQLiteAuthStorage:
 
     def __init__(self, db_path: Path | str, cleanup_interval: int = 300) -> None:
         self.db_path = Path(db_path)
+        # Only a directory this server creates is its to restrict. Tightening one
+        # that already existed would lock an operator out of a shared location
+        # they chose deliberately.
+        parent_existed = self.db_path.parent.exists()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        _restrict_to_owner(self.db_path.parent)
+        if not parent_existed:
+            _restrict_to_owner(self.db_path.parent)
         self._cleanup_interval = cleanup_interval
         self._last_cleanup = time.time()
         self._lock = threading.RLock()
