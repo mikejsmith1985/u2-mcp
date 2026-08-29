@@ -149,6 +149,18 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Added
 
+- **`update_value` — change one value of one field, in place.** Separate from
+  `write_record`, and the separation is the point. `write_record` takes a whole
+  record, which puts responsibility for the record's *shape* on whoever assembled
+  the fields — and in a MultiValue file the shape is load-bearing: position *n* of
+  a set of parallel fields describes one branch. Assemble it carelessly and a
+  field comes back a different length; the record is still well formed, nothing
+  errors, and what has changed is which branch a quantity belongs to. This tool
+  names the field and the value instead, so the shape stays the server's problem
+  where it is enforced once. It returns the record before and after with the
+  number of values each field held both times, and says outright whether the
+  alignment survived — the one outcome nothing downstream can detect.
+
 - **`U2_DRIVER` names the database library**, so this server can be evaluated
   without a Universe instance — which licensing puts out of reach for most people
   who might assess it. The default remains `uopy` and a test asserts it; a
