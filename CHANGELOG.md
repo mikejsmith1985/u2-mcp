@@ -51,6 +51,19 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ### Fixed
 
+- **A dictionary item was dropped when its name began like the command.**
+  `list_dictionary` decided which lines of a listing were items by prefix: a line
+  beginning "LIST" was the echoed command, and a line containing "listed" was the
+  closing summary. Both tests are too loose to survive ordinary data —
+  `LIST.PRICE` and `LIST.COST` are everyday MultiValue dictionary names, and a
+  wholesale distributor's product file has one of each. Every such item was
+  dropped with no error and no gap where it had been, so the only way to notice
+  was to already know what should have come back. Someone points this tool at a
+  database to find out what is in it, which makes them by definition the person
+  who cannot tell. The distinction is a word boundary: Universe echoes
+  `LIST DICT PRODUCT` with a space, and `LIST.PRICE` has none. Found by running
+  the discovery path end to end rather than by reading it.
+
 - **Refreshing a token no longer crashes, and no longer loses the user.**
   `exchange_refresh_token` read an attribute the SDK's `RefreshToken` does not
   have, so every refresh raised `AttributeError`; and the replacement tokens were

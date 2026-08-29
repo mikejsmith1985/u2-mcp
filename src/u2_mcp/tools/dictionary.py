@@ -1,12 +1,58 @@
 """Dictionary and schema discovery tools for u2-mcp."""
 
 import logging
+import re
 from typing import Any
 
 from ..server import get_connection_manager, mcp
 from ..utils.dynarray import parse_record
 
 logger = logging.getLogger(__name__)
+
+
+# The verbs Universe echoes at the top of a listing. Matched as whole words, so a
+# dictionary item that merely begins with the same letters is not mistaken for
+# the command that listed it.
+_ECHOED_VERBS = ("LIST", "SORT", "SELECT", "SSELECT", "COUNT", "LIST.ITEM")
+
+# `12 records listed.` or `1 record listed.` -- Universe's closing line. Anchored
+# and shaped, rather than looked for as a word anywhere in the text, because
+# "listed" appears inside real field names.
+_RECORD_SUMMARY = re.compile(r"^\d+\s+records?\s+(listed|selected|counted)", re.IGNORECASE)
+
+
+def _is_command_echo(line: str) -> bool:
+    """Whether a line is Universe echoing the command rather than naming an item.
+
+    Args:
+        line: One line of a listing, already stripped
+
+    Returns:
+        True when the line begins with a listing verb as a whole word
+    """
+    upper = line.upper()
+
+    for verb in _ECHOED_VERBS:
+        if upper == verb:
+            return True
+        # The space is the whole test. "LIST DICT PRODUCT" is the command;
+        # "LIST.PRICE" is a field a distributor keeps a price in.
+        if upper.startswith(verb + " "):
+            return True
+
+    return False
+
+
+def _is_record_summary(line: str) -> bool:
+    """Whether a line is the count Universe prints at the end of a listing.
+
+    Args:
+        line: One line of a listing, already stripped
+
+    Returns:
+        True for "5 records listed." and its siblings
+    """
+    return _RECORD_SUMMARY.match(line) is not None
 
 
 def _parse_dict_item(item_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
@@ -101,8 +147,24 @@ def list_dictionary(file_name: str, include_system: bool = False) -> dict[str, A
         item_ids: list[str] = []
         for line in list_output.split("\n"):
             line = line.strip()
-            # Skip empty lines, headers, and summary lines
-            if not line or line.startswith("LIST") or "listed" in line.lower():
+            # Skip empty lines, the echoed command, and the closing summary.
+            #
+            # These tests used to be prefix matches -- a line beginning "LIST"
+            # was a header, a line containing "listed" was the summary -- and
+            # both were too loose to survive ordinary data. `LIST.PRICE` and
+            # `LIST.COST` are everyday MultiValue dictionary names, and
+            # `LISTED.DATE` is not exotic; every one of them was dropped, with no
+            # error and no gap where the item had been.
+            #
+            # That made the failure invisible to exactly the person it hurt.
+            # Someone points this at a database to find out what is in it, so
+            # they are by definition the one who cannot tell that something is
+            # missing.
+            #
+            # The distinction is a word boundary. Universe echoes the command as
+            # `LIST DICT PRODUCT ...`, with a space; a dictionary item called
+            # `LIST.PRICE` has none.
+            if not line or _is_command_echo(line) or _is_record_summary(line):
                 continue
             if line.startswith("-") or line.startswith("=") or line.startswith("*"):
                 continue
