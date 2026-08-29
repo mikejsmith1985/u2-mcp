@@ -9,6 +9,20 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- **Writes are now refused unless someone asks for them.** `U2_READ_ONLY`
+  defaulted to false, and the hardening notes already named it: describing what
+  unauthenticated network exposure cost, they say "read-only mode is off by
+  default, so that includes writing and deleting records." The fix that followed
+  closed the bind address and the CORS policy and left the default alone, so the
+  sentence stayed true. It matters most in the case this server is offered for —
+  someone points it at a database they care about, having read that it is
+  read-only, and gets a server that writes if a caller asks twice. Setting
+  `U2_READ_ONLY=false` still works, and choosing it is the moment somebody is
+  actually thinking about writes.
+
+
 ### Security
 
 - **The HTTP transport no longer serves an unauthenticated database to the
@@ -50,6 +64,14 @@ pass here; run `python scripts/verify_hardening.py` to regenerate that evidence.
   instead of storing a password on disk, and errors never echo the map's contents.
 
 ### Fixed
+
+- **A file was dropped from `list_files` when its name contained a header word.**
+  The same defect as the dictionary one, in the same shape: any line containing
+  RECORDS, LISTED or SELECTED anywhere was treated as a header. `RECORDS` is a
+  plausible MultiValue file name and so is `SELECTED.ITEMS`. A file that vanishes
+  here is one the caller never learns exists, which is worse than almost anywhere
+  else — telling somebody what is in an account they do not know is the entire
+  purpose of the call.
 
 - **A dictionary item was dropped when its name began like the command.**
   `list_dictionary` decided which lines of a listing were items by prefix: a line

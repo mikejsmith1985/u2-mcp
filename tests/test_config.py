@@ -45,7 +45,10 @@ class TestU2Config:
             assert config.port == 31438
             assert config.ssl is False
             assert config.timeout == 30
-            assert config.read_only is False
+            # Changed from upstream, deliberately: writes are opt-in here,
+            # because the person who forgets to set this is the person who
+            # needed it set. tests/test_read_only_default.py carries the reason.
+            assert config.read_only is True
             assert config.max_records == 10000
 
     def test_config_blocked_commands_parsing(self, mock_env):

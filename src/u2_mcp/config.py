@@ -68,10 +68,28 @@ class U2Config(BaseSettings):
     )
 
     # Safety settings
+    #
+    # Writes are opt-in, because the person who forgets to set this is exactly
+    # the person who needed it set.
+    #
+    # The hardening notes already named this while describing what
+    # unauthenticated network exposure cost: "read-only mode is off by default,
+    # so that includes writing and deleting records." The fix that followed
+    # closed the bind address and the CORS policy and left this alone, so the
+    # sentence stayed true.
+    #
+    # It matters most in the case this server is offered for. Someone evaluating
+    # it points it at a database they care about, having read that it is
+    # read-only, and gets a server that will write if a caller asks twice -- a
+    # guarantee resting on one environment variable nobody told them to set.
+    #
+    # Every other safety setting in this fork fails closed. U2_READ_ONLY=false
+    # is still available, and choosing it is the moment somebody is actually
+    # thinking about writes.
     read_only: bool = Field(
-        default=False,
+        default=True,
         alias="U2_READ_ONLY",
-        description="Disable write operations",
+        description="Refuse writes. On by default; set false to allow them.",
     )
     max_records: int = Field(
         default=10000,

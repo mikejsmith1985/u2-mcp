@@ -12,6 +12,17 @@ from ..utils.export import records_to_csv, records_to_json
 logger = logging.getLogger(__name__)
 
 
+# Lines Universe prints above a listing, matched whole rather than as substrings
+# so that a file called FILE.NAME.MAP is not mistaken for one of them.
+_COLUMN_HEADERS = frozenset({"FILE NAME", "FILENAME", "FILE.NAME"})
+
+# `12 records listed.` and its siblings. Anchored and shaped, because "listed"
+# and "records" both appear inside real file names.
+_RECORD_SUMMARY = re.compile(
+    r"^\d+\s+records?\s+(listed|selected|counted)", re.IGNORECASE
+)
+
+
 def _parse_file_list(output: str) -> list[str]:
     """Parse LISTFILES or SELECT VOC output into file names.
 
@@ -29,11 +40,21 @@ def _parse_file_list(output: str) -> list[str]:
         # Skip empty lines, headers, and separator lines
         if not line or line.startswith("*") or line.startswith("-") or line.startswith("="):
             continue
-        # Skip common header lines
-        if any(
-            header in line.upper()
-            for header in ["FILE NAME", "FILENAME", "RECORDS", "LISTED", "SELECTED"]
-        ):
+        # Skip the column header and the closing summary.
+        #
+        # These used to be substring tests -- any line containing RECORDS,
+        # LISTED or SELECTED anywhere was treated as a header -- and that drops
+        # real files. `RECORDS` is a plausible MultiValue file name and so is
+        # `SELECTED.ITEMS`; both vanished, with no error and no gap to notice.
+        #
+        # A file the caller never learns exists is worse here than almost
+        # anywhere else, because the whole purpose of this call is to tell
+        # somebody what is in an account they do not know.
+        #
+        # The header is matched as a whole line and the summary by its shape.
+        if line.upper() in _COLUMN_HEADERS:
+            continue
+        if _RECORD_SUMMARY.match(line):
             continue
 
         # Extract first word as file name
