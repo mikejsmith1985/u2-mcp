@@ -1,18 +1,18 @@
 # Hardening evidence
 
-Generated 2026-08-28 23:21 UTC by `scripts/verify_hardening.py`.
+Generated 2026-08-29 11:23 UTC by `scripts/verify_hardening.py`.
 
 Each fix below is measured with the same tests against two checkouts: the upstream code at `f427768`, and this fork. A fix counts as proven only when its tests fail on the original and pass here.
 
 | Fix | Defect | Upstream | This fork | Raw output |
 |-----|--------|----------|-----------|------------|
-| H1 | Non-ASCII business data was silently deleted from query output | fails | passes | [before](raw/H1-upstream.txt) / [after](raw/H1-fork.txt) |
-| H2 | Auto-reconnect never reconnected | fails | passes | [before](raw/H2-upstream.txt) / [after](raw/H2-fork.txt) |
-| H3 | A truncated answer was presented as a complete one | fails | passes | [before](raw/H3-upstream.txt) / [after](raw/H3-fork.txt) |
-| H4 | A timed-out query kept running against the database | fails | passes | [before](raw/H4-upstream.txt) / [after](raw/H4-fork.txt) |
-| H5 | OAuth state was lost on restart, and could not be shared | fails | passes | [before](raw/H5-upstream.txt) / [after](raw/H5-fork.txt) |
-| H6 | The audit trail could not name who acted | fails | passes | [before](raw/H6-upstream.txt) / [after](raw/H6-fork.txt) |
-| H7 | Every caller reached the database as the same account | fails | passes | [before](raw/H7-upstream.txt) / [after](raw/H7-fork.txt) |
+| H1 | Non-ASCII business data was silently deleted from query output | fails the assertion | passes | [before](raw/H1-upstream.txt) / [after](raw/H1-fork.txt) |
+| H2 | Auto-reconnect never reconnected | fails the assertion | passes | [before](raw/H2-upstream.txt) / [after](raw/H2-fork.txt) |
+| H3 | A truncated answer was presented as a complete one | fails the assertion | passes | [before](raw/H3-upstream.txt) / [after](raw/H3-fork.txt) |
+| H4 | A timed-out query kept running against the database | fails the assertion | passes | [before](raw/H4-upstream.txt) / [after](raw/H4-fork.txt) |
+| H5 | OAuth state was lost on restart, and could not be shared | test could not run (new module) | passes | [before](raw/H5-upstream.txt) / [after](raw/H5-fork.txt) |
+| H6 | The audit trail could not name who acted | test could not run (new module) | passes | [before](raw/H6-upstream.txt) / [after](raw/H6-fork.txt) |
+| H7 | Every caller reached the database as the same account | test could not run (new module) | passes | [before](raw/H7-upstream.txt) / [after](raw/H7-fork.txt) |
 
 ## What each defect cost
 

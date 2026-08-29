@@ -204,6 +204,41 @@ def run_tests(root: Path, node_ids: list[str]) -> tuple[bool, str]:
     return result.returncode == 0, output
 
 
+def describe_upstream(passed: bool, output: str) -> str:
+    """Say how the upstream checkout answered, distinguishing the two ways it fails.
+
+    This distinction is the difference between two kinds of evidence.
+
+    A test that runs against upstream and fails an assertion demonstrates the
+    defect: the behaviour was wrong, and here is the wrongness. A test that
+    cannot even be collected because the module it imports did not exist
+    upstream demonstrates only that the fork added a file -- which is true, and
+    is not the same claim.
+
+    Both exited non-zero, and the report rendered both as "fails". Three of the
+    seven fixes were in the second category and read exactly like the four in
+    the first.
+
+    Args:
+        passed: Whether the run exited zero
+        output: The captured pytest output
+
+    Returns:
+        A short phrase for the report's Upstream column
+    """
+    if passed:
+        return "unexpectedly passes"
+
+    # Collection errors name the missing module; an assertion failure does not.
+    could_not_collect = (
+        "ModuleNotFoundError" in output
+        or "ImportError" in output
+        or "errors during collection" in output
+    )
+
+    return "test could not run (new module)" if could_not_collect else "fails the assertion"
+
+
 def write_raw_log(name: str, content: str) -> str:
     """Write raw pytest output and return its path relative to the report."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -271,7 +306,7 @@ def main() -> int:
                 "key": fix.key,
                 "title": fix.title,
                 "impact": fix.impact,
-                "before": "fails" if not before_passed else "unexpectedly passes",
+                "before": describe_upstream(before_passed, before_output),
                 "after": "passes" if after_passed else "STILL FAILS",
                 "before_log": write_raw_log(f"{fix.key}-upstream.txt", before_output),
                 "after_log": write_raw_log(f"{fix.key}-fork.txt", after_output),

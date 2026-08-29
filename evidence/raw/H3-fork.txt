@@ -14,4 +14,4 @@ tests/test_tools/test_query.py::TestResultCompleteness::test_caller_supplied_sam
 tests/test_tools/test_query.py::TestResultCompleteness::test_select_list_reports_truncation PASSED [ 83%]
 tests/test_tools/test_query.py::TestResultCompleteness::test_complete_select_list_is_marked_complete PASSED [100%]
 
-============================== 6 passed in 0.78s ==============================
+============================== 6 passed in 0.91s ==============================

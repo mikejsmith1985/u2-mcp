@@ -14,9 +14,9 @@ tests/test_connection.py::TestQueryTimeouts::test_abandoned_queries_are_counted 
 ================================== FAILURES ===================================
 ____________ TestQueryTimeouts.test_timeout_tears_down_the_session ____________
 
-self = <tests.test_connection.TestQueryTimeouts object at 0x0000016E4EB886E0>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000016E4EB89040>
-mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000016E4EB89E20>
+self = <tests.test_connection.TestQueryTimeouts object at 0x0000020F22808890>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000020F228091F0>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000020F2280A030>
 
     def test_timeout_tears_down_the_session(
         self, connection_manager: ConnectionManager, mock_uopy: MockSession
@@ -30,16 +30,16 @@ mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000016E4EB89E20>
     
 >       assert mock_uopy.is_active is False
 E       assert True is False
-E        +  where True = <tests.mocks.mock_uopy.MockSession object at 0x0000016E4EB89E20>.is_active
+E        +  where True = <tests.mocks.mock_uopy.MockSession object at 0x0000020F2280A030>.is_active
 
 tests\test_connection.py:124: AssertionError
 ------------------------------ Captured log call ------------------------------
 ERROR    u2_mcp.connection:connection.py:283 Query timed out after 0.05s: LIST HUGE.FILE
 ____________ TestQueryTimeouts.test_abandoned_queries_are_counted _____________
 
-self = <tests.test_connection.TestQueryTimeouts object at 0x0000016E4EB88D70>
-connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000016E4EB88110>
-mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000016E4EB892E0>
+self = <tests.test_connection.TestQueryTimeouts object at 0x0000020F22808F50>
+connection_manager = <u2_mcp.connection.ConnectionManager object at 0x0000020F2401CB30>
+mock_uopy = <tests.mocks.mock_uopy.MockSession object at 0x0000020F22809EB0>
 
     def test_abandoned_queries_are_counted(
         self, connection_manager: ConnectionManager, mock_uopy: MockSession
@@ -60,4 +60,4 @@ ERROR    u2_mcp.connection:connection.py:283 Query timed out after 0.05s: LIST H
 =========================== short test summary info ===========================
 FAILED tests/test_connection.py::TestQueryTimeouts::test_timeout_tears_down_the_session
 FAILED tests/test_connection.py::TestQueryTimeouts::test_abandoned_queries_are_counted
-========================= 2 failed, 2 passed in 0.71s =========================
+========================= 2 failed, 2 passed in 0.72s =========================
