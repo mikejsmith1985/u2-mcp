@@ -5,7 +5,12 @@ and subroutines are how it reuses business logic that already exists. Both need
 to behave predictably when the server answers with something unexpected.
 """
 
+from collections.abc import Iterator
+
+import pytest
+
 from tests.mocks.mock_uopy import MockSession, UOError
+from u2_mcp.config import U2Config
 from u2_mcp.connection import ConnectionManager
 from u2_mcp.tools.dictionary import describe_file, get_field_definition, list_dictionary
 from u2_mcp.tools.subroutine import call_subroutine, list_catalog
@@ -139,3 +144,57 @@ class TestSubroutineCalls:
         result = list_catalog()
 
         assert "error" not in result
+
+
+class TestSubroutinesAreRefusedInReadOnlyMode:
+    """Read-only has to cover the tool that can do anything.
+
+    A cataloged subroutine is arbitrary BASIC. It can WRITE, DELETE, CLEARFILE or
+    shell out, and the server sees only its name -- there is no way to tell a
+    reporting routine from a destructive one before calling it.
+
+    Every other write path checked `read_only` and this one did not, so read-only
+    mode disabled the tools that announce themselves as writes while leaving open
+    the one that could do anything without saying so. The documentation said
+    read-only "prevents all write operations" throughout.
+    """
+
+    @pytest.fixture
+    def read_only_manager(
+        self, mock_config_read_only: U2Config, mock_uopy: MockSession
+    ) -> Iterator[ConnectionManager]:
+        """Install a read-only connection manager as the server's global."""
+        import u2_mcp.server as server_module
+
+        manager = ConnectionManager(mock_config_read_only)
+        server_module._connection_manager = manager
+        try:
+            yield manager
+        finally:
+            server_module._connection_manager = None
+
+    def test_a_subroutine_call_is_refused(
+        self, read_only_manager: ConnectionManager
+    ) -> None:
+        result = call_subroutine("ANY.SUBROUTINE", ["x"])
+
+        assert "error" in result
+
+    def test_the_refusal_says_why(self, read_only_manager: ConnectionManager) -> None:
+        # Whoever hits this needs to know it is a policy and not a fault, or they
+        # will go looking for a subroutine that does not exist.
+        result = call_subroutine("ANY.SUBROUTINE", ["x"])
+
+        assert "read-only" in result["error"].lower()
+
+    def test_the_subroutine_is_never_reached(
+        self, read_only_manager: ConnectionManager, mock_uopy: MockSession
+    ) -> None:
+        """Refused before the call, not after it.
+
+        A subroutine that ran and then had its result discarded would have
+        already done whatever it does.
+        """
+        call_subroutine("ANY.SUBROUTINE", ["x"])
+
+        assert mock_uopy.called_subroutines == []
