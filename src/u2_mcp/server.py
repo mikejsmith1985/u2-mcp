@@ -491,51 +491,48 @@ def run_streamable_http_server() -> None:
     # Get the Streamable HTTP app
     app = mcp_streamable.streamable_http_app()
 
-    # Add verbose request logging middleware for debugging
+    # Request logging: method, path and outcome. Never a body, never a header.
+    #
+    # This middleware used to capture and log the response body of /token and
+    # /register, and every response header with it. Those bodies are the OAuth
+    # responses: access_token, refresh_token, client_secret, in cleartext, at
+    # INFO, on the production HTTP path with no flag to turn it off.
+    #
+    # The README says "Credentials are never logged". The fix that hashed tokens
+    # in storage was committed under the title "stop storing tokens in the clear"
+    # while this wrote them to the log on the way out -- so the log was the
+    # easier place to steal them from than the database ever was.
+    #
+    # What is left is what a request log is actually for: who asked for what and
+    # what happened. The authorization header is not truncated and logged, it is
+    # reduced to whether one was present, because the first twenty characters of
+    # a bearer token are still twenty characters of a bearer token.
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.requests import Request as StarletteRequest
     from starlette.responses import Response as StarletteResponse
 
     class RequestLoggingMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: StarletteRequest, call_next: Any) -> StarletteResponse:
-            auth_header = request.headers.get("authorization", "none")
-            if auth_header != "none":
-                auth_header = auth_header[:20] + "..." if len(auth_header) > 20 else auth_header
+            has_authorization = "authorization" in request.headers
+
             logger.info(
-                f"REQUEST: {request.method} {request.url.path} "
-                f"auth={auth_header} "
-                f"origin={request.headers.get('origin', 'none')}"
-            )
-            response = await call_next(request)
-
-            # Capture response details for key endpoints
-            path = request.url.path
-            capture_body = (
-                path in ("/token", "/register")
-                or (response.status_code == 401 and path == "/")
-                or path.startswith("/.well-known/")
+                "REQUEST: %s %s auth=%s origin=%s",
+                request.method,
+                request.url.path,
+                "present" if has_authorization else "none",
+                request.headers.get("origin", "none"),
             )
 
-            if capture_body:
-                body = b""
-                async for chunk in response.body_iterator:
-                    body += chunk
-                resp_headers = dict(response.headers)
-                logger.info(
-                    f"RESPONSE: {request.method} {path} -> {response.status_code} "
-                    f"headers={resp_headers} "
-                    f"body={body.decode('utf-8', errors='replace')[:500]}"
-                )
-                return StarletteResponse(
-                    content=body,
-                    status_code=response.status_code,
-                    headers=resp_headers,
-                    media_type=response.media_type,
-                )
+            response: StarletteResponse = await call_next(request)
 
-            logger.info(f"RESPONSE: {request.method} {path} -> {response.status_code}")
-            passthrough: StarletteResponse = response
-            return passthrough
+            logger.info(
+                "RESPONSE: %s %s -> %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+
+            return response
 
     app.add_middleware(RequestLoggingMiddleware)
 
