@@ -1,0 +1,54 @@
+#!/bin/sh
+# Refuse a commit that carries a secret, or the name of anybody this work is for.
+#
+# Both halves matter and only the first is obvious. A credential in history is the
+# well-known hazard; the one that actually happened here was a company name sitting
+# in test fixtures as a fake email domain, which no secret scanner looks for and
+# which nobody thinks to grep. Scrubbing the working tree does not scrub history,
+# so the cheapest place to stop either is before the commit exists.
+#
+# Install once:  git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# Names that must never reach a public repository. Kept deliberately short so the
+# check stays fast and so a false positive is easy to reason about.
+PRIVATE_NAMES='REDACTED|REDACTED|reviewer|reviewer|this work'
+
+# The hook excludes itself. It has to name the words in order to refuse them, so
+# scanning its own diff means it can never be installed or amended -- which is
+# exactly what happened on the first attempt.
+scanned=$(git diff --cached -U0 -- . ':(exclude).githooks/*')
+
+if printf '%s' "$scanned" | grep -iE "^\+.*($PRIVATE_NAMES)" >/dev/null 2>&1; then
+  echo "pre-commit: refused — a staged line names somebody this work is for."
+  echo "            Say what the code does, not who is going to read it."
+  printf '%s' "$scanned" | grep -inE "^\+.*($PRIVATE_NAMES)" | head -5
+  exit 1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  # Exit 1 means a secret was found. Anything else means gitleaks did not run --
+  # a flag it does not have, a bad config -- and those must not be reported as a
+  # finding. The first version of this passed --quiet, which gitleaks rejected,
+  # and the hook announced a secret that did not exist.
+  output=$(gitleaks git --pre-commit --staged --no-banner --redact 2>&1)
+  status=$?
+
+  if [ "$status" -eq 1 ]; then
+    echo "pre-commit: refused - gitleaks found a secret in the staged changes."
+    printf '%s
+' "$output" | tail -20
+    exit 1
+  fi
+
+  if [ "$status" -ne 0 ]; then
+    echo "pre-commit: refused - gitleaks could not run, so nothing was scanned."
+    printf '%s
+' "$output" | tail -10
+    exit 1
+  fi
+fi
+
+exit 0
