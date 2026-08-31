@@ -36,17 +36,17 @@ import uopy
 
 # Connection
 session = uopy.connect(
-    host='server',
-    user='username', 
-    password='password',
-    account='ACCOUNT_NAME',
-    service='uvcs'  # or 'udcs' for UniData
+    host="server",
+    user="username",
+    password="password",
+    account="ACCOUNT_NAME",
+    service="uvcs",  # or 'udcs' for UniData
 )
 
 # File operations
-file = session.open('CUSTOMERS')
-record = file.read('CUST001')
-file.write('CUST002', record)
+file = session.open("CUSTOMERS")
+record = file.read("CUST001")
+file.write("CUST002", record)
 
 # TCL/ECL commands
 cmd = session.command()
@@ -54,23 +54,24 @@ cmd.exec('LIST CUSTOMERS WITH STATE = "CA"')
 output = cmd.response
 
 # BASIC subroutine calls
-sub = session.subroutine('GET.CUSTOMER.DATA', 3)  # 3 arguments
-sub.args[0] = 'CUST001'
+sub = session.subroutine("GET.CUSTOMER.DATA", 3)  # 3 arguments
+sub.args[0] = "CUST001"
 sub.call()
 result = sub.args[1]
 
 # SELECT lists
 select = session.select()
-select.exec('SELECT CUSTOMERS WITH BALANCE > 1000')
+select.exec("SELECT CUSTOMERS WITH BALANCE > 1000")
 for record_id in select:
     # process each ID
     pass
 
 # Dynamic arrays
 from uopy import DynArray
+
 da = DynArray(record)
-field1 = da.extract(1)        # Get field 1
-field2_mv3 = da.extract(2, 3) # Get field 2, multivalue 3
+field1 = da.extract(1)  # Get field 1
+field2_mv3 = da.extract(2, 3)  # Get field 2, multivalue 3
 ```
 
 ### MCP Server Framework
@@ -81,6 +82,7 @@ Use FastMCP (from the `mcp` package) for rapid development:
 from mcp.server import FastMCP
 
 mcp = FastMCP("Universe MCP Server")
+
 
 @mcp.tool()
 def query_file(file_name: str, record_id: str) -> str:
@@ -475,33 +477,35 @@ import os
 mcp = FastMCP("U2 MCP Server")
 _session = None
 
+
 def get_session():
     global _session
     if _session is None:
         _session = uopy.connect(
-            host=os.environ['U2_HOST'],
-            user=os.environ['U2_USER'],
-            password=os.environ['U2_PASSWORD'],
-            account=os.environ['U2_ACCOUNT']
+            host=os.environ["U2_HOST"],
+            user=os.environ["U2_USER"],
+            password=os.environ["U2_PASSWORD"],
+            account=os.environ["U2_ACCOUNT"],
         )
     return _session
+
 
 @mcp.tool()
 def read_record(
     file_name: str = Field(description="Name of the Universe file"),
-    record_id: str = Field(description="Record ID to read")
+    record_id: str = Field(description="Record ID to read"),
 ) -> dict:
     """Read a record from a Universe file and return its contents."""
     session = get_session()
-    
+
     try:
         file = session.open(file_name)
         record = file.read(record_id)
-        
+
         # Parse into structured format
         da = uopy.DynArray(record)
         fields = {}
-        
+
         # Extract all fields (up to reasonable limit)
         for i in range(1, 100):
             try:
@@ -515,14 +519,9 @@ def read_record(
                     break
             except:
                 break
-        
-        return {
-            "file": file_name,
-            "id": record_id,
-            "fields": fields,
-            "raw": str(record)
-        }
-        
+
+        return {"file": file_name, "id": record_id, "fields": fields, "raw": str(record)}
+
     except uopy.UOError as e:
         return {"error": str(e), "file": file_name, "id": record_id}
 ```
@@ -532,27 +531,25 @@ def read_record(
 ```python
 @mcp.tool()
 def execute_query(
-    query: str = Field(description="RetrieVe/UniQuery statement (e.g., 'LIST CUSTOMERS WITH STATE = \"CA\"')")
+    query: str = Field(
+        description="RetrieVe/UniQuery statement (e.g., 'LIST CUSTOMERS WITH STATE = \"CA\"')"
+    ),
 ) -> dict:
     """Execute a RetrieVe/UniQuery statement and return results."""
     session = get_session()
-    
+
     # Basic safety check
     query_upper = query.upper().strip()
-    dangerous = ['DELETE', 'CLEAR', 'CREATE', 'CNAME']
+    dangerous = ["DELETE", "CLEAR", "CREATE", "CNAME"]
     if any(query_upper.startswith(cmd) for cmd in dangerous):
         return {"error": f"Command not allowed: {query_upper.split()[0]}"}
-    
+
     try:
         cmd = session.command()
         cmd.exec(query)
-        
-        return {
-            "query": query,
-            "output": cmd.response,
-            "status": "success"
-        }
-        
+
+        return {"query": query, "output": cmd.response, "status": "success"}
+
     except uopy.UOError as e:
         return {"error": str(e), "query": query}
 ```

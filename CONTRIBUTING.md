@@ -168,6 +168,7 @@ MCP tools are defined using the `@mcp.tool()` decorator. To add a new tool:
 ```python
 from ..server import mcp, get_connection_manager
 
+
 @mcp.tool()
 def my_new_tool(param1: str, param2: int = 10) -> dict[str, Any]:
     """Short description of what the tool does.
@@ -209,6 +210,7 @@ MCP resources provide context to AI assistants. To add a new resource:
 ```python
 from ..server import mcp
 
+
 @mcp.resource("u2://my-resource")
 def get_my_resource() -> str:
     """Return helpful information as a string."""
@@ -233,6 +235,7 @@ Resources should:
 def test_connect_with_valid_credentials_succeeds():
     """Test that connection succeeds with valid credentials."""
     ...
+
 
 def test_connect_with_invalid_host_raises_connection_error():
     """Test that connection fails gracefully with invalid host."""

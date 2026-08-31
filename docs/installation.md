@@ -173,6 +173,7 @@ The `uopy` package may encounter a `TCP_KEEPIDLE` error on macOS. This is handle
 
 ```python
 import socket
+
 if not hasattr(socket, "TCP_KEEPIDLE"):
     socket.TCP_KEEPIDLE = socket.TCP_KEEPALIVE
 ```
