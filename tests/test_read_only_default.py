@@ -57,18 +57,14 @@ class TestTheDefault:
         assert U2Config().read_only is False
 
     @pytest.mark.parametrize("written", ["true", "True", "TRUE", "1"])
-    def test_asking_for_read_only_explicitly_also_works(
-        self, environment, written: str
-    ) -> None:
+    def test_asking_for_read_only_explicitly_also_works(self, environment, written: str) -> None:
         environment.setenv("U2_READ_ONLY", written)
 
         assert U2Config().read_only is True
 
 
 class TestTheSettingIsNotSilentlyIgnored:
-    def test_an_unreadable_value_is_refused_rather_than_assumed(
-        self, environment
-    ) -> None:
+    def test_an_unreadable_value_is_refused_rather_than_assumed(self, environment) -> None:
         # A misspelling must not quietly become one setting or the other. Someone
         # who wrote U2_READ_ONLY=yes meant something, and guessing which is how a
         # safety setting comes to be off while its owner believes it is on.

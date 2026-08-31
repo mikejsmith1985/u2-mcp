@@ -173,9 +173,7 @@ class TestSubroutinesAreRefusedInReadOnlyMode:
         finally:
             server_module._connection_manager = None
 
-    def test_a_subroutine_call_is_refused(
-        self, read_only_manager: ConnectionManager
-    ) -> None:
+    def test_a_subroutine_call_is_refused(self, read_only_manager: ConnectionManager) -> None:
         result = call_subroutine("ANY.SUBROUTINE", ["x"])
 
         assert "error" in result

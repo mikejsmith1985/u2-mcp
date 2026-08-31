@@ -63,12 +63,14 @@ class _Manager:
 @pytest.fixture
 def inventory(monkeypatch):
     """Four branches, with bins recorded for only the first two."""
-    record = AM.join([
-        VM.join(["AUR", "LKW", "BOU", "DEN"]),
-        VM.join(["10", "20", "30", "40"]),
-        VM.join(["1", "2", "3", "4"]),
-        VM.join(["A-1", "B-2"]),
-    ])
+    record = AM.join(
+        [
+            VM.join(["AUR", "LKW", "BOU", "DEN"]),
+            VM.join(["10", "20", "30", "40"]),
+            VM.join(["1", "2", "3", "4"]),
+            VM.join(["A-1", "B-2"]),
+        ]
+    )
 
     handle = _Handle(record)
     monkeypatch.setattr("u2_mcp.tools.update.get_connection_manager", lambda: _Manager(handle))
@@ -147,9 +149,7 @@ class TestItReportsWhetherTheShapeSurvived:
         handle = _PaddingHandle(
             AM.join([VM.join(["AUR", "LKW", "BOU", "DEN"]), VM.join(["A-1", "B-2"])])
         )
-        monkeypatch.setattr(
-            "u2_mcp.tools.update.get_connection_manager", lambda: _Manager(handle)
-        )
+        monkeypatch.setattr("u2_mcp.tools.update.get_connection_manager", lambda: _Manager(handle))
 
         result = update_value("INVENTORY", "P-1", 2, 3, "D-4", confirm=True)
 

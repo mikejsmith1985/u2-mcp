@@ -102,7 +102,7 @@ def check_settings() -> bool:
         print()
         explain(
             f"""
-            {len(missing)} setting(s) are missing: {', '.join(missing)}
+            {len(missing)} setting(s) are missing: {", ".join(missing)}
 
             Set them and run this again. On Windows PowerShell:
 

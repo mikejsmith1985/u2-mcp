@@ -74,16 +74,16 @@ def product_dictionary(monkeypatch):
 
     # What Universe prints for `LIST DICT PRODUCT @ID`: its own echoed header,
     # the keys, and a closing summary.
-    listing = "\n".join([
-        "LIST DICT PRODUCT @ID 11:38:22am  29 AUG 2026  PAGE    1",
-        *sorted(records),
-        f"{len(records)} records listed.",
-    ])
+    listing = "\n".join(
+        [
+            "LIST DICT PRODUCT @ID 11:38:22am  29 AUG 2026  PAGE    1",
+            *sorted(records),
+            f"{len(records)} records listed.",
+        ]
+    )
 
     manager = _StubManager(listing, records)
-    monkeypatch.setattr(
-        "u2_mcp.tools.dictionary.get_connection_manager", lambda: manager
-    )
+    monkeypatch.setattr("u2_mcp.tools.dictionary.get_connection_manager", lambda: manager)
     return records
 
 
@@ -93,12 +93,8 @@ class TestNamesThatLookLikeTheCommand:
 
         assert result["count"] == len(product_dictionary)
 
-    @pytest.mark.parametrize(
-        "name", ["LIST.PRICE", "LIST.COST", "LISTED.DATE"]
-    )
-    def test_a_name_beginning_like_the_verb_survives(
-        self, product_dictionary, name: str
-    ) -> None:
+    @pytest.mark.parametrize("name", ["LIST.PRICE", "LIST.COST", "LISTED.DATE"])
+    def test_a_name_beginning_like_the_verb_survives(self, product_dictionary, name: str) -> None:
         # The one that matters commercially: a product file's price field.
         returned = {item["name"] for item in list_dictionary("PRODUCT")["dictionary_items"]}
 
@@ -108,7 +104,8 @@ class TestNamesThatLookLikeTheCommand:
         # Present is not the same as correct. The conversion and field number are
         # what a reader needs in order to use it.
         found = next(
-            item for item in list_dictionary("PRODUCT")["dictionary_items"]
+            item
+            for item in list_dictionary("PRODUCT")["dictionary_items"]
             if item["name"] == "LIST.PRICE"
         )
 
