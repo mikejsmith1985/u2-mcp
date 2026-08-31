@@ -19,9 +19,9 @@ moment somebody is thinking about writes.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from u2_mcp.config import U2Config
-
 
 # The four settings a config needs before it will build. No database is reached
 # by any test here.
@@ -74,5 +74,5 @@ class TestTheSettingIsNotSilentlyIgnored:
         # safety setting comes to be off while its owner believes it is on.
         environment.setenv("U2_READ_ONLY", "banana")
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             U2Config()

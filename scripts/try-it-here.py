@@ -125,7 +125,8 @@ def check_settings() -> bool:
     step(
         "U2_DRIVER",
         True,
-        f"{driver}" + ("  (the real uopy client)" if driver == "uopy" else "  (demonstration only)"),
+        f"{driver}"
+        + ("  (the real uopy client)" if driver == "uopy" else "  (demonstration only)"),
     )
 
     print()
