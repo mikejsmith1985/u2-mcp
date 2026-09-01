@@ -1,0 +1,13 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: C:\ProjectsWin\u2-mcp
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/test_connection.py::TestOutputSanitization::test_accented_customer_names_survive PASSED [ 50%]
+tests/test_connection.py::TestOutputSanitization::test_currency_symbols_survive PASSED [100%]
+
+============================== 2 passed in 0.87s ==============================

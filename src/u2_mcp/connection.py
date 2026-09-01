@@ -2,22 +2,44 @@
 
 import logging
 import socket
+import threading
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 # Workaround for uopy bug on macOS - TCP_KEEPIDLE doesn't exist on macOS
 if not hasattr(socket, "TCP_KEEPIDLE"):
     socket.TCP_KEEPIDLE = socket.TCP_KEEPALIVE  # type: ignore[attr-defined]
 
-import uopy
-
 from .config import U2Config
+from .credentials import U2Credentials
+from .driver import get_driver
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _uopy() -> ModuleType:
+    """Return the configured driver.
+
+    Resolved per call rather than captured at import time, so configuration can
+    change between tests without the module needing to be reloaded.
+    """
+    return get_driver()
+
+
+# MultiValue delimiters, named so the sanitizer reads as intent rather than magic numbers.
+AM = chr(254)  # Attribute mark - separates fields
+VM = chr(253)  # Value mark - separates values within a field
+SM = chr(252)  # Subvalue mark - separates subvalues within a value
+
+# Unicode categories that must never reach a user's screen: control codes,
+# formatting marks, surrogates, private-use and unassigned code points.
+_NON_DISPLAYABLE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 
 @dataclass
@@ -62,18 +84,37 @@ class ConnectionManager:
         config: U2Config instance with connection parameters
     """
 
-    def __init__(self, config: U2Config) -> None:
+    def __init__(self, config: U2Config, credentials: "U2Credentials | None" = None) -> None:
         self._config = config
+        # Credentials may belong to one person rather than the whole server, so the
+        # database can enforce its own security against the real caller.
+        self._credentials = credentials or U2Credentials(
+            user=config.user,
+            password=config.password,
+            account=config.account,
+            is_shared=True,
+        )
         self._session: Any | None = None  # uopy.Session
         self._connections: dict[str, ConnectionInfo] = {}
         self._default_connection: str = "default"
         self._transaction = TransactionState()
         self._open_files: dict[str, Any] = {}  # Cache of open file handles
+        # One conversation per session: commands must not interleave on the wire.
+        self._command_lock = threading.RLock()
+        # Establishing a session is serialized separately, so a burst of callers
+        # arriving to find no session opens one connection rather than one each.
+        self._session_lock = threading.RLock()
+        self._abandoned_queries = 0
 
     @property
     def config(self) -> U2Config:
         """Return the configuration object."""
         return self._config
+
+    @property
+    def credentials(self) -> U2Credentials:
+        """Return the database login this manager connects with."""
+        return self._credentials
 
     @property
     def in_transaction(self) -> bool:
@@ -97,30 +138,33 @@ class ConnectionManager:
             return self._connections[name]
 
         try:
-            logger.info(f"Connecting to {self._config.host}/{self._config.account}")
+            logger.info(
+                f"Connecting to {self._config.host}/{self._credentials.account} "
+                f"as {self._credentials.user}"
+            )
 
-            self._session = uopy.connect(
+            self._session = _uopy().connect(
                 host=self._config.host,
-                user=self._config.user,
-                password=self._config.password,
-                account=self._config.account,
+                user=self._credentials.user,
+                password=self._credentials.password,
+                account=self._credentials.account,
                 service=self._config.service,
             )
 
             info = ConnectionInfo(
                 name=name,
                 host=self._config.host,
-                account=self._config.account,
+                account=self._credentials.account,
                 service=self._config.service,
                 connected_at=datetime.now(),
                 is_active=True,
             )
             self._connections[name] = info
 
-            logger.info(f"Connected successfully to {self._config.account}")
+            logger.info(f"Connected successfully to {self._credentials.account}")
             return info
 
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Connection failed: {e}")
             raise ConnectionError(f"Failed to connect to {self._config.host}: {e}") from e
 
@@ -153,7 +197,7 @@ class ConnectionManager:
             logger.info(f"Disconnected connection '{name}'")
             return True
 
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.warning(f"Error during disconnect: {e}")
             return False
 
@@ -174,8 +218,27 @@ class ConnectionManager:
         """Return all active connections."""
         return {k: v for k, v in self._connections.items() if v.is_active}
 
+    def _discard_connection(self, name: str) -> None:
+        """Forget a connection so the next connect() genuinely opens a new session.
+
+        Without this, connect() sees a connection record still marked active and
+        returns early, leaving the caller holding a dead (or absent) session.
+
+        Args:
+            name: Name of the connection record to discard
+        """
+        self._session = None
+        self._open_files.clear()
+        self._connections.pop(name, None)
+        self._transaction = TransactionState()
+
     def get_session(self) -> Any:
         """Get the active uopy session, auto-reconnecting if necessary.
+
+        Establishing a session is serialized: when a burst of requests arrives to
+        find no session, every one of them would otherwise open its own. Those
+        duplicates leak a database connection each and stay invisible until the
+        server runs out of them.
 
         Returns:
             Active uopy.Session object
@@ -183,21 +246,41 @@ class ConnectionManager:
         Raises:
             ConnectionError: If reconnection fails
         """
+        name = self._default_connection
+
+        with self._session_lock:
+            return self._establish_session(name)
+
+    def _establish_session(self, name: str) -> Any:
+        """Return a live session for this login, reconnecting if needed.
+
+        Args:
+            name: Connection record name
+
+        Returns:
+            Active uopy.Session object
+
+        Raises:
+            ConnectionError: If a session cannot be established
+        """
         if self._session is None:
-            self.connect(self._default_connection)
+            self._discard_connection(name)
+            self.connect(name)
 
-        # At this point session should be set
-        assert self._session is not None
-
-        # Verify connection is still alive with a health check
+        # Verify the connection is still alive before handing it to a caller.
+        session = self._session
         try:
-            if not self._session.is_active:
-                raise uopy.UOError("Session not active")
-        except (uopy.UOError, AttributeError):
+            is_alive = session is not None and bool(session.is_active)
+        except (_uopy().UOError, AttributeError):
+            is_alive = False
+
+        if not is_alive:
             logger.warning("Connection lost, attempting reconnect")
-            self._session = None
-            self._open_files.clear()
-            self.connect(self._default_connection)
+            self._discard_connection(name)
+            self.connect(name)
+
+        if self._session is None:
+            raise ConnectionError(f"Failed to establish a session to {self._config.host}")
 
         return self._session
 
@@ -210,7 +293,7 @@ class ConnectionManager:
             file_name: Name of the file to open
 
         Returns:
-            uopy.File object
+            _uopy().File object
 
         Raises:
             FileNotFoundError: If file cannot be opened
@@ -221,10 +304,10 @@ class ConnectionManager:
 
         session = self.get_session()
         try:
-            file_handle = uopy.File(file_name, session=session)
+            file_handle = _uopy().File(file_name, session=session)
             self._open_files[file_name] = file_handle
             return file_handle
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             raise FileNotFoundError(f"Cannot open file '{file_name}': {e}") from e
 
     def close_file(self, file_name: str) -> bool:
@@ -241,8 +324,21 @@ class ConnectionManager:
             return True
         return False
 
-    def execute_command(self, command_text: str, timeout: int | None = None) -> str:
+    @property
+    def abandoned_query_count(self) -> int:
+        """Return how many queries have been abandoned to a timeout.
+
+        Abandoned work is worth surfacing: a rising count means queries are
+        routinely outrunning the timeout and the limit or the queries need review.
+        """
+        return self._abandoned_queries
+
+    def execute_command(self, command_text: str, timeout: float | None = None) -> str:
         """Execute a TCL command and return the response.
+
+        A uopy session is a single conversation with the server, so commands are
+        serialized: two at once on one session would interleave and corrupt each
+        other's replies.
 
         Args:
             command_text: TCL command to execute
@@ -254,17 +350,43 @@ class ConnectionManager:
         Raises:
             TimeoutError: If command exceeds timeout
         """
-        import threading
-
         effective_timeout = timeout if timeout is not None else self._config.query_timeout
-        session = self.get_session()
+
+        with self._command_lock:
+            session = self.get_session()
+            result, completed = self._start_command(command_text, session)
+
+            if completed.wait(timeout=effective_timeout):
+                if result["error"]:
+                    raise result["error"]
+                return self._sanitize_output(result["response"] or "")
+
+            self._abandon_command(command_text, effective_timeout)
+            raise TimeoutError(
+                f"Query exceeded {effective_timeout} second timeout and was abandoned. "
+                "The database session was closed to stop the work; the next request will "
+                "reconnect. Consider adding a SAMPLE clause or narrowing the selection "
+                "criteria."
+            )
+
+    def _start_command(self, command_text: str, session: Any) -> tuple[dict[str, Any], Any]:
+        """Run a command on a worker thread so the caller can time it out.
+
+        Args:
+            command_text: TCL command to execute
+            session: The uopy session to run it on
+
+        Returns:
+            Tuple of (result holder, completion event)
+        """
+        import threading
 
         result: dict[str, Any] = {"response": None, "error": None}
         completed = threading.Event()
 
         def run_command() -> None:
             try:
-                cmd = uopy.Command(command_text, session=session)
+                cmd = _uopy().Command(command_text, session=session)
                 cmd.run()
                 result["response"] = str(cmd.response) if cmd.response else ""
             except Exception as e:
@@ -272,25 +394,35 @@ class ConnectionManager:
             finally:
                 completed.set()
 
-        thread = threading.Thread(target=run_command, daemon=True)
-        thread.start()
+        threading.Thread(target=run_command, daemon=True).start()
+        return result, completed
 
-        if completed.wait(timeout=effective_timeout):
-            if result["error"]:
-                raise result["error"]
-            return self._sanitize_output(result["response"] or "")
-        else:
-            logger.error(f"Query timed out after {effective_timeout}s: {command_text[:100]}")
-            raise TimeoutError(
-                f"Query exceeded {effective_timeout} second timeout. "
-                "Consider adding SAMPLE clause or narrowing the selection criteria."
-            )
+    def _abandon_command(self, command_text: str, effective_timeout: float) -> None:
+        """Stop a query that outran its timeout.
+
+        uopy gives no way to cancel a command in flight, so returning an error
+        would leave the query running on the server and the thread alive against a
+        session another request would reuse. Closing the session is what actually
+        stops the work: the socket drops and the server abandons the command.
+
+        Args:
+            command_text: The command being abandoned, for the log
+            effective_timeout: The timeout it exceeded, for the log
+        """
+        self._abandoned_queries += 1
+        logger.error(
+            f"Query timed out after {effective_timeout}s and was abandoned "
+            f"(total abandoned: {self._abandoned_queries}): {command_text[:100]}"
+        )
+        self.force_disconnect()
 
     def _sanitize_output(self, text: str) -> str:
         """Clean up Universe output for display.
 
-        Removes/replaces control characters that cause display issues.
-        Converts MultiValue delimiters to readable representations.
+        Replaces MultiValue delimiters with readable separators and strips
+        terminal control codes. Real business data -- accented customer names,
+        currency symbols -- is preserved: filtering by Unicode category rather
+        than by "is it plain ASCII" is what keeps MULLER from losing its umlaut.
 
         Args:
             text: Raw output from Universe
@@ -298,34 +430,46 @@ class ConnectionManager:
         Returns:
             Cleaned text suitable for JSON/display
         """
-        # Replace carriage returns with newlines
+        # Normalize terminal line endings and page breaks to plain newlines.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
-        # Remove form feeds (page breaks)
         text = text.replace("\f", "\n")
 
         # Convert MultiValue delimiters to readable text
         # AM (chr 254) = field/attribute separator -> newline
         # VM (chr 253) = multivalue separator -> pipe
         # SM (chr 252) = subvalue separator -> semicolon
-        text = text.replace(chr(254), "\n")  # AM -> newline
-        text = text.replace(chr(253), " | ")  # VM -> pipe
-        text = text.replace(chr(252), " ; ")  # SM -> semicolon
+        text = text.replace(AM, "\n")
+        text = text.replace(VM, " | ")
+        text = text.replace(SM, " ; ")
 
-        # Remove other control characters except newline and tab
-        cleaned = []
-        for char in text:
-            if char == "\n" or char == "\t" or (ord(char) >= 32 and ord(char) < 127):
-                cleaned.append(char)
-        return "".join(cleaned)
+        return "".join(char for char in text if self._is_displayable(char))
+
+    @staticmethod
+    def _is_displayable(char: str) -> bool:
+        """Return whether a character is safe to show to a user.
+
+        Keeps newlines and tabs, drops the control, format, surrogate and
+        private-use categories, and keeps every ordinary printable character
+        regardless of alphabet.
+
+        Args:
+            char: A single character
+
+        Returns:
+            True if the character should survive sanitization
+        """
+        if char in ("\n", "\t"):
+            return True
+        return unicodedata.category(char) not in _NON_DISPLAYABLE_CATEGORIES
 
     def create_select_list(self) -> Any:
         """Create a new select list object.
 
         Returns:
-            uopy.List object for select operations
+            _uopy().List object for select operations
         """
         session = self.get_session()
-        return uopy.List(session=session)
+        return _uopy().List(session=session)
 
     def health_check(self) -> bool:
         """Perform a quick health check on the connection.
@@ -340,7 +484,7 @@ class ConnectionManager:
 
         try:
             # Use a minimal command that should return quickly
-            cmd = uopy.Command("WHO", session=self._session)
+            cmd = _uopy().Command("WHO", session=self._session)
             cmd.run()
             return True
         except Exception as e:
@@ -391,7 +535,7 @@ class ConnectionManager:
             self._transaction.started_at = datetime.now()
             logger.info("Transaction started")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to start transaction: {e}")
             raise
 
@@ -413,7 +557,7 @@ class ConnectionManager:
             self._transaction = TransactionState()
             logger.info("Transaction committed")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to commit transaction: {e}")
             raise
 
@@ -435,6 +579,6 @@ class ConnectionManager:
             self._transaction = TransactionState()
             logger.info("Transaction rolled back")
             return True
-        except uopy.UOError as e:
+        except _uopy().UOError as e:
             logger.error(f"Failed to rollback transaction: {e}")
             raise

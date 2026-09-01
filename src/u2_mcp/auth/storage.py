@@ -75,6 +75,37 @@ class PendingAuthorization:
     expires_at: float = field(default_factory=lambda: time.time() + 600)
 
 
+def create_auth_storage(backend: str, db_path: str) -> Any:
+    """Build the OAuth state store named by configuration.
+
+    Args:
+        backend: 'memory' for the in-process store, 'sqlite' for the durable one
+        db_path: Database file to use when the backend is 'sqlite'
+
+    Returns:
+        A storage instance
+
+    Raises:
+        ValueError: If the backend name is not recognised
+    """
+    if backend == "memory":
+        logger.warning(
+            "OAuth state is in memory: a restart signs every user out, and a second "
+            "instance will not recognise this one's tokens. Set U2_AUTH_STORAGE=sqlite "
+            "for a durable store."
+        )
+        return InMemoryAuthStorage()
+
+    if backend == "sqlite":
+        from pathlib import Path
+
+        from .sqlite_storage import SQLiteAuthStorage
+
+        return SQLiteAuthStorage(Path(db_path).expanduser())
+
+    raise ValueError(f"Unknown auth storage backend '{backend}'. Use 'memory' or 'sqlite'.")
+
+
 class InMemoryAuthStorage:
     """In-memory storage for OAuth state.
 

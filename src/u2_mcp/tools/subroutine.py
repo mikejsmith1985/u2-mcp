@@ -3,8 +3,7 @@
 import logging
 from typing import Any
 
-import uopy
-
+from ..driver import get_driver
 from ..server import get_connection_manager, mcp
 
 logger = logging.getLogger(__name__)
@@ -42,6 +41,26 @@ def call_subroutine(
     """
     manager = get_connection_manager()
 
+    # Read-only refuses this outright, and this is the tool that most needs it to.
+    #
+    # A cataloged subroutine is arbitrary BASIC. It can WRITE, DELETE, CLEARFILE
+    # or shell out, and nothing here can tell which one will -- the name is the
+    # only thing this server sees. Every other write path checked read_only;
+    # this one did not, so read-only mode disabled the tools that announce
+    # themselves as writes while leaving open the one that could do anything
+    # without saying so.
+    #
+    # The documentation said read-only "prevents all write operations". This is
+    # what makes that true rather than nearly true.
+    if manager.config.read_only:
+        return {
+            "error": (
+                "Subroutine calls are disabled in read-only mode. A cataloged "
+                "subroutine is arbitrary code and may write."
+            ),
+            "subroutine": name,
+        }
+
     args = args or []
     actual_num_args = num_args if num_args is not None else len(args)
 
@@ -55,7 +74,7 @@ def call_subroutine(
         session = manager.get_session()
 
         # Create subroutine object with specified number of arguments
-        sub = uopy.Subroutine(name, actual_num_args, session=session)
+        sub = get_driver().Subroutine(name, actual_num_args, session=session)
 
         # Set input arguments
         for i, arg in enumerate(args):

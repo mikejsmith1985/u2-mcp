@@ -68,10 +68,28 @@ class U2Config(BaseSettings):
     )
 
     # Safety settings
+    #
+    # Writes are opt-in, because the person who forgets to set this is exactly
+    # the person who needed it set.
+    #
+    # The hardening notes already named this while describing what
+    # unauthenticated network exposure cost: "read-only mode is off by default,
+    # so that includes writing and deleting records." The fix that followed
+    # closed the bind address and the CORS policy and left this alone, so the
+    # sentence stayed true.
+    #
+    # It matters most in the case this server is offered for. Someone evaluating
+    # it points it at a database they care about, having read that it is
+    # read-only, and gets a server that will write if a caller asks twice -- a
+    # guarantee resting on one environment variable nobody told them to set.
+    #
+    # Every other safety setting in this fork fails closed. U2_READ_ONLY=false
+    # is still available, and choosing it is the moment somebody is actually
+    # thinking about writes.
     read_only: bool = Field(
-        default=False,
+        default=True,
         alias="U2_READ_ONLY",
-        description="Disable write operations",
+        description="Refuse writes. On by default; set false to allow them.",
     )
     max_records: int = Field(
         default=10000,
@@ -92,19 +110,36 @@ class U2Config(BaseSettings):
 
     # HTTP Server settings (for centralized deployment)
     http_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         alias="U2_HTTP_HOST",
-        description="Host to bind HTTP server to",
+        description=(
+            "Host to bind the HTTP server to. Defaults to loopback: the SSE transport "
+            "performs no authentication, so binding a reachable interface exposes every "
+            "tool. Set 0.0.0.0 deliberately for a container or a proxied deployment."
+        ),
     )
     http_port: int = Field(
         default=8080,
         alias="U2_HTTP_PORT",
         description="Port for HTTP server",
     )
+    allow_unauthenticated_network_access: bool = Field(
+        default=False,
+        alias="U2_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS",
+        description=(
+            "Permit an unauthenticated server to listen on a reachable interface. "
+            "Off by default; the server refuses that combination unless this is set."
+        ),
+    )
     http_cors_origins_str: str = Field(
-        default="*",
+        default="",
         alias="U2_HTTP_CORS_ORIGINS",
-        description="Comma-separated list of allowed CORS origins, or * for all",
+        description=(
+            "Comma-separated list of browser origins allowed to connect. Empty by "
+            "default, which blocks cross-origin browser access; non-browser MCP "
+            "clients are unaffected. '*' is refused because this server sends "
+            "credentials."
+        ),
     )
 
     # OAuth/Authentication settings (for Claude.ai Integrations)
@@ -151,6 +186,45 @@ class U2Config(BaseSettings):
         default=None,
         alias="U2_DUO_API_HOST",
         description="Duo API hostname (e.g., api-XXXXXXXX.duosecurity.com)",
+    )
+
+    # Caller identity and database credentials
+    identity_mode: str = Field(
+        default="shared",
+        alias="U2_IDENTITY_MODE",
+        description=(
+            "How a caller reaches the database: 'shared' (one account for everyone, "
+            "so the database cannot tell callers apart) or 'mapped' (each "
+            "authenticated person uses their own Universe login)"
+        ),
+    )
+    max_connections: int = Field(
+        default=25,
+        alias="U2_MAX_CONNECTIONS",
+        description=(
+            "Most database sessions to hold open at once. In mapped mode each person "
+            "holds one, so this bounds what a crowd of callers can consume."
+        ),
+    )
+    credential_map_path: str = Field(
+        default="~/.u2-mcp/credentials.json",
+        alias="U2_CREDENTIAL_MAP_PATH",
+        description="JSON map of user subject to Universe login, for U2_IDENTITY_MODE=mapped",
+    )
+
+    # OAuth state storage
+    auth_storage: str = Field(
+        default="memory",
+        alias="U2_AUTH_STORAGE",
+        description=(
+            "Where OAuth state lives: 'memory' (lost on restart) or 'sqlite' "
+            "(durable, and shared by several workers on one host)"
+        ),
+    )
+    auth_storage_path: str = Field(
+        default="~/.u2-mcp/auth.db",
+        alias="U2_AUTH_STORAGE_PATH",
+        description="Database file for OAuth state when U2_AUTH_STORAGE is 'sqlite'",
     )
 
     # Token settings
@@ -209,13 +283,13 @@ class U2Config(BaseSettings):
         description="Maximum characters to log for tool results (truncates if larger)",
     )
 
-    @computed_field  # type: ignore[prop-decorator]  # pydantic pattern
+    @computed_field
     @property
     def blocked_commands(self) -> list[str]:
         """Parse comma-separated string into list of commands."""
         return [cmd.strip().upper() for cmd in self.blocked_commands_str.split(",") if cmd.strip()]
 
-    @computed_field  # type: ignore[prop-decorator]  # pydantic pattern
+    @computed_field
     @property
     def http_cors_origins(self) -> list[str]:
         """Parse comma-separated CORS origins into list."""

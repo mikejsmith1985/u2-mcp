@@ -1,0 +1,26 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp-baseline\.venv\Scripts\python.exe
+rootdir: C:\ProjectsWin\u2-mcp-baseline
+configfile: pyproject.toml
+plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+_______________ ERROR collecting tests/test_utils/test_audit.py _______________
+ImportError while importing test module 'C:\ProjectsWin\u2-mcp-baseline\tests\test_utils\test_audit.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\mikej\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_utils\test_audit.py:14: in <module>
+    from u2_mcp.credentials import U2Credentials
+E   ModuleNotFoundError: No module named 'u2_mcp.credentials'
+=========================== short test summary info ===========================
+ERROR tests/test_utils/test_audit.py
+============================== 1 error in 0.10s ===============================
+ERROR: found no collectors for C:\ProjectsWin\u2-mcp-baseline\tests\test_utils\test_audit.py::TestAttribution
+
+ERROR: found no collectors for C:\ProjectsWin\u2-mcp-baseline\tests\test_utils\test_audit.py::TestDatabaseLoginRecording
+

@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Test script to verify database connection."""
+"""Open a connection to the configured database and report what answered.
+
+A diagnostic, run by hand when a deployment cannot reach its database and
+somebody needs to know whether the problem is the address, the credentials or
+the account.
+
+It was named `test_connection.py` and lived at the repository root. Nothing
+collected it -- `testpaths` is limited to `tests/` -- but a name beginning with
+`test_` in a repository's root is one changed invocation away from being
+imported by a test run, and importing this opens a live database connection at
+module scope. It is a script; it is now in the place scripts go.
+"""
 
 from dotenv import load_dotenv
 

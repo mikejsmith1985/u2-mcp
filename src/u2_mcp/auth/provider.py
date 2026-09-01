@@ -7,7 +7,7 @@ bridging to external identity providers (Duo, Auth0, generic OIDC).
 import logging
 import secrets
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -17,9 +17,11 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     RefreshToken,
     RegistrationError,
+    TokenError,
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic import AnyUrl
 
 from .storage import (
     InMemoryAuthStorage,
@@ -33,6 +35,60 @@ if TYPE_CHECKING:
     from .idp.base import BaseIdPAdapter
 
 logger = logging.getLogger(__name__)
+
+# The client authentication methods the OAuth metadata may advertise.
+_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic", "private_key_jwt")
+
+# What to advertise when a stored client names a method outside the spec.
+_DEFAULT_AUTH_METHOD = "client_secret_post"
+
+
+def _auth_method(method: str | None) -> Any:
+    """Return a client authentication method the OAuth metadata can carry.
+
+    A stored value outside the four the specification defines would otherwise be
+    advertised verbatim, so it is replaced with the default and logged.
+
+    Args:
+        method: The method recorded at registration
+
+    Returns:
+        One of the defined authentication methods
+    """
+    if method in _AUTH_METHODS:
+        return method
+    if method is not None:
+        logger.warning(f"Unrecognised token_endpoint_auth_method '{method}'; using default")
+    return _DEFAULT_AUTH_METHOD
+
+
+def _require_client_id(client: OAuthClientInformationFull) -> str:
+    """Return the client's id, refusing to proceed without one.
+
+    Every issued token and every pending authorization is keyed by its client. A
+    missing id would produce records belonging to nobody, which cannot later be
+    revoked by client or attributed in a log.
+
+    Args:
+        client: The client making the request
+
+    Returns:
+        The client id
+
+    Raises:
+        TokenError: If the client has no id
+    """
+    if not client.client_id:
+        raise TokenError(
+            error="invalid_client",
+            error_description="The client presented no client_id",
+        )
+    # The client model comes from a third-party library with no type
+    # information, so the guard above proves the id is present but not that it
+    # is a string. Converting explicitly is the difference between checking a
+    # type and assuming one — and this value goes into an audit record naming
+    # who acted, where a silently wrong type would be discovered much later.
+    return str(client.client_id)
 
 
 class U2OAuthProvider(
@@ -58,7 +114,7 @@ class U2OAuthProvider(
         callback_path: str = "/oauth/callback",
         token_expiry: int = 3600,
         refresh_token_expiry: int = 86400 * 30,  # 30 days
-        storage: InMemoryAuthStorage | None = None,
+        storage: Any | None = None,
     ):
         """Initialize the OAuth provider.
 
@@ -68,7 +124,8 @@ class U2OAuthProvider(
             callback_path: Path for IdP callback (default /oauth/callback)
             token_expiry: Access token lifetime in seconds (default 1 hour)
             refresh_token_expiry: Refresh token lifetime in seconds (default 30 days)
-            storage: Auth state storage (default InMemoryAuthStorage)
+            storage: Auth state store; defaults to the in-memory one, which is
+                lost on restart. Pass a durable store for shared deployments.
         """
         self.idp_adapter = idp_adapter
         self.issuer_url = issuer_url.rstrip("/")
@@ -94,11 +151,11 @@ class U2OAuthProvider(
             client_id=stored.client_id,
             client_secret=stored.client_secret,
             client_name=stored.client_name,
-            redirect_uris=stored.redirect_uris,
+            redirect_uris=[AnyUrl(uri) for uri in stored.redirect_uris],
             grant_types=stored.grant_types,
             response_types=stored.response_types,
             scope=stored.scope,
-            token_endpoint_auth_method=stored.token_endpoint_auth_method,
+            token_endpoint_auth_method=_auth_method(stored.token_endpoint_auth_method),
             client_id_issued_at=int(stored.created_at),
         )
 
@@ -174,7 +231,7 @@ class U2OAuthProvider(
         # Store pending authorization state
         pending = PendingAuthorization(
             state=idp_state,
-            client_id=client.client_id,
+            client_id=_require_client_id(client),
             redirect_uri=str(params.redirect_uri),
             scope=" ".join(params.scopes) if params.scopes else "",
             code_challenge=params.code_challenge,
@@ -217,7 +274,7 @@ class U2OAuthProvider(
             expires_at=stored.expires_at,
             client_id=stored.client_id,
             code_challenge=stored.code_challenge or "",
-            redirect_uri=stored.redirect_uri,
+            redirect_uri=AnyUrl(stored.redirect_uri),
             redirect_uri_provided_explicitly=True,
             resource=stored.resource,
         )
@@ -239,7 +296,7 @@ class U2OAuthProvider(
             StoredToken(
                 token=access_token,
                 token_type="access",
-                client_id=client.client_id,
+                client_id=_require_client_id(client),
                 user_subject=authorization_code.client_id,  # Will be set properly in callback
                 scope=" ".join(authorization_code.scopes),
                 expires_at=access_expires,
@@ -252,7 +309,7 @@ class U2OAuthProvider(
             StoredToken(
                 token=refresh_token,
                 token_type="refresh",
-                client_id=client.client_id,
+                client_id=_require_client_id(client),
                 user_subject=authorization_code.client_id,
                 scope=" ".join(authorization_code.scopes),
                 expires_at=refresh_expires,
@@ -300,7 +357,27 @@ class U2OAuthProvider(
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
-        """Exchange refresh token for new tokens (token rotation)."""
+        """Exchange refresh token for new tokens (token rotation).
+
+        The identity the original token was issued to is carried across. Without
+        it the new tokens name nobody: the audit trail records an empty user from
+        the first refresh onward, and per-user database credentials cannot be
+        resolved at all -- roughly an hour into every session.
+
+        Raises:
+            TokenError: If the refresh token is not one this server issued
+        """
+        # Recover what the token was issued for before revoking it. The SDK's
+        # RefreshToken carries only the token, client and scopes; the subject and
+        # the claims behind it live in this server's own store.
+        stored_refresh = self.storage.get_refresh_token(refresh_token.token)
+        if stored_refresh is None:
+            logger.warning("Refresh presented for a token this server did not issue")
+            raise TokenError(
+                error="invalid_grant",
+                error_description="Refresh token is not valid",
+            )
+
         # Revoke old refresh token
         self.storage.revoke_refresh_token(refresh_token.token)
 
@@ -313,17 +390,19 @@ class U2OAuthProvider(
         refresh_expires = now + self.refresh_token_expiry
 
         scope_str = " ".join(scopes) if scopes else " ".join(refresh_token.scopes)
+        client_id = client.client_id or stored_refresh.client_id
 
         # Store new access token
         self.storage.store_access_token(
             StoredToken(
                 token=new_access_token,
                 token_type="access",
-                client_id=client.client_id,
-                user_subject="",  # Preserved from original auth
+                client_id=client_id,
+                user_subject=stored_refresh.user_subject,
                 scope=scope_str,
                 expires_at=access_expires,
-                resource=refresh_token.resource,
+                user_claims=stored_refresh.user_claims,
+                resource=stored_refresh.resource,
             )
         )
 
@@ -332,11 +411,12 @@ class U2OAuthProvider(
             StoredToken(
                 token=new_refresh_token,
                 token_type="refresh",
-                client_id=client.client_id,
-                user_subject="",
+                client_id=client_id,
+                user_subject=stored_refresh.user_subject,
                 scope=scope_str,
                 expires_at=refresh_expires,
-                resource=refresh_token.resource,
+                user_claims=stored_refresh.user_claims,
+                resource=stored_refresh.resource,
             )
         )
 

@@ -8,9 +8,19 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import AnyHttpUrl
 
 from .config import U2Config
 from .connection import ConnectionError, ConnectionManager
+from .credentials import create_credential_resolver
+from .exposure import check_network_exposure
+from .identity import (
+    CallerIdentity,
+    caller_from_stored_token,
+    current_caller,
+    set_identity_resolver,
+)
+from .registry import ConnectionRegistry
 from .utils.audit import audit_tool_call, get_audit_logger, init_audit_logger
 from .utils.watchdog import ConnectionWatchdog, get_watchdog, init_watchdog
 
@@ -27,29 +37,88 @@ F = TypeVar("F", bound=Callable[..., Any])
 # Create FastMCP server instance
 mcp = FastMCP("U2 MCP Server")
 
-# Global connection manager (initialized on first connect)
+# One connection per database login, chosen by who is calling.
+_connection_registry: ConnectionRegistry | None = None
+
+# Set directly by tests that want a single manager; takes precedence when present.
 _connection_manager: ConnectionManager | None = None
 
 
+def get_connection_registry() -> ConnectionRegistry:
+    """Get or create the registry holding one connection per database login."""
+    global _connection_registry
+    if _connection_registry is None:
+        config = U2Config()
+        _connection_registry = ConnectionRegistry(config, create_credential_resolver(config))
+    return _connection_registry
+
+
 def get_connection_manager() -> ConnectionManager:
-    """Get or create the global connection manager.
+    """Get the connection manager for the caller of the current request.
+
+    In the default shared mode every caller resolves to the same login, so this
+    returns one manager for the whole process. In mapped mode each authenticated
+    person gets their own session under their own Universe account.
 
     Returns:
-        ConnectionManager instance configured from environment variables
+        The ConnectionManager holding that caller's session
     """
-    global _connection_manager
-    if _connection_manager is None:
-        config = U2Config()
-        _connection_manager = ConnectionManager(config)
-    return _connection_manager
+    if _connection_manager is not None:
+        return _connection_manager
+    return get_connection_registry().current()
 
 
 def reset_connection_manager() -> None:
-    """Reset the global connection manager (useful for testing)."""
-    global _connection_manager
+    """Reset the global connection state (useful for testing)."""
+    global _connection_manager, _connection_registry
     if _connection_manager is not None:
         _connection_manager.disconnect_all()
     _connection_manager = None
+    if _connection_registry is not None:
+        _connection_registry.disconnect_all()
+    _connection_registry = None
+
+
+def _install_identity_resolver(auth_provider: Any) -> None:
+    """Teach the server how to name the caller behind an authenticated request.
+
+    The MCP SDK exposes the access token presented on the current request; the
+    subject it was issued to lives in this server's own OAuth store. Joining the
+    two is what turns "a request arrived" into "Alice asked for this".
+
+    Args:
+        auth_provider: The OAuth provider holding issued tokens
+    """
+    from mcp.server.auth.middleware.auth_context import get_access_token
+
+    def resolve() -> CallerIdentity | None:
+        access_token = get_access_token()
+        if access_token is None:
+            return None
+        stored = auth_provider.storage.get_access_token(access_token.token)
+        if stored is None:
+            return None
+        return caller_from_stored_token(stored)
+
+    set_identity_resolver(resolve)
+
+
+def _current_login() -> Any | None:
+    """Return the database login the current request is using, for the audit trail.
+
+    The credentials are resolved directly rather than through the connection
+    registry: asking the registry would open a connection slot as a side effect,
+    so recording that work happened could displace somebody else's session.
+
+    Returns None when no login can be determined, so audit logging never becomes
+    the reason a tool call fails.
+    """
+    try:
+        if _connection_manager is not None:
+            return _connection_manager.credentials
+        return get_connection_registry().resolver.resolve(current_caller())
+    except Exception:  # noqa: BLE001 - auditing must not break the call it records
+        return None
 
 
 def _init_watchdog(config: U2Config) -> ConnectionWatchdog | None:
@@ -65,13 +134,13 @@ def _init_watchdog(config: U2Config) -> ConnectionWatchdog | None:
         logger.info("Connection watchdog disabled")
         return None
 
-    manager = get_connection_manager()
+    registry = get_connection_registry()
 
     def health_check() -> bool:
-        return manager.health_check()
+        return registry.health_check()
 
     def force_disconnect() -> None:
-        manager.force_disconnect()
+        registry.force_disconnect()
 
     watchdog = init_watchdog(config, health_check, force_disconnect)
     logger.info("Connection watchdog initialized")
@@ -135,6 +204,7 @@ def _wrap_tools_with_audit(mcp_instance: FastMCP) -> None:
                     result=result,
                     error=error_msg,
                     duration_ms=duration_ms,
+                    credentials=_current_login(),
                 )
 
         tool.fn = wrapped_fn
@@ -285,6 +355,9 @@ def run_sse_server() -> None:
 
     config = U2Config()
 
+    # Refuse an unsafe exposure before the port is opened, not on first request.
+    check_network_exposure(config, transport="sse")
+
     # Initialize audit logging if enabled
     _init_audit_logging(config)
     _wrap_tools_with_audit(mcp)
@@ -330,8 +403,12 @@ def run_streamable_http_server() -> None:
     from .auth.callback import handle_oauth_callback
     from .auth.idp import create_idp_adapter
     from .auth.provider import U2OAuthProvider
+    from .auth.storage import create_auth_storage
 
     config = U2Config()
+
+    # Refuse an unsafe exposure before the port is opened, not on first request.
+    check_network_exposure(config, transport="streamable-http")
 
     # Initialize audit logging if enabled
     _init_audit_logging(config)
@@ -357,12 +434,17 @@ def run_streamable_http_server() -> None:
             issuer_url=config.auth_issuer_url,
             token_expiry=config.token_expiry_seconds,
             refresh_token_expiry=config.refresh_token_expiry_seconds,
+            storage=create_auth_storage(config.auth_storage, config.auth_storage_path),
         )
+
+        # Validating the issuer URL here means a malformed one fails at startup
+        # rather than at the first sign-in attempt.
+        issuer_url = AnyHttpUrl(config.auth_issuer_url)
 
         # Configure auth settings for FastMCP
         auth_settings = AuthSettings(
-            issuer_url=config.auth_issuer_url,
-            resource_server_url=config.auth_issuer_url,
+            issuer_url=issuer_url,
+            resource_server_url=issuer_url,
             client_registration_options=ClientRegistrationOptions(
                 enabled=True,  # Required for Claude.ai DCR
                 valid_scopes=["u2:read", "u2:write"],
@@ -372,7 +454,13 @@ def run_streamable_http_server() -> None:
             required_scopes=["u2:read"],
         )
 
+        # Close the loop between authentication and attribution: the bearer token
+        # on the request is looked up in the OAuth store to recover the person it
+        # was issued to, so the audit trail and credential resolution see a name.
+        _install_identity_resolver(auth_provider)
+
         logger.info(f"OAuth enabled with {config.idp_provider} IdP")
+        logger.info(f"Caller identity mode: {config.identity_mode}")
 
     # Create new FastMCP instance with auth configured
     # Note: We need a new instance because the original 'mcp' was created without auth
@@ -403,49 +491,47 @@ def run_streamable_http_server() -> None:
     # Get the Streamable HTTP app
     app = mcp_streamable.streamable_http_app()
 
-    # Add verbose request logging middleware for debugging
+    # Request logging: method, path and outcome. Never a body, never a header.
+    #
+    # This middleware used to capture and log the response body of /token and
+    # /register, and every response header with it. Those bodies are the OAuth
+    # responses: access_token, refresh_token, client_secret, in cleartext, at
+    # INFO, on the production HTTP path with no flag to turn it off.
+    #
+    # The README says "Credentials are never logged". The fix that hashed tokens
+    # in storage was committed under the title "stop storing tokens in the clear"
+    # while this wrote them to the log on the way out -- so the log was the
+    # easier place to steal them from than the database ever was.
+    #
+    # What is left is what a request log is actually for: who asked for what and
+    # what happened. The authorization header is not truncated and logged, it is
+    # reduced to whether one was present, because the first twenty characters of
+    # a bearer token are still twenty characters of a bearer token.
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.requests import Request as StarletteRequest
     from starlette.responses import Response as StarletteResponse
 
     class RequestLoggingMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: StarletteRequest, call_next: Any) -> StarletteResponse:
-            auth_header = request.headers.get("authorization", "none")
-            if auth_header != "none":
-                auth_header = auth_header[:20] + "..." if len(auth_header) > 20 else auth_header
+            has_authorization = "authorization" in request.headers
+
             logger.info(
-                f"REQUEST: {request.method} {request.url.path} "
-                f"auth={auth_header} "
-                f"origin={request.headers.get('origin', 'none')}"
-            )
-            response = await call_next(request)
-
-            # Capture response details for key endpoints
-            path = request.url.path
-            capture_body = (
-                path in ("/token", "/register")
-                or (response.status_code == 401 and path == "/")
-                or path.startswith("/.well-known/")
+                "REQUEST: %s %s auth=%s origin=%s",
+                request.method,
+                request.url.path,
+                "present" if has_authorization else "none",
+                request.headers.get("origin", "none"),
             )
 
-            if capture_body:
-                body = b""
-                async for chunk in response.body_iterator:
-                    body += chunk
-                resp_headers = dict(response.headers)
-                logger.info(
-                    f"RESPONSE: {request.method} {path} -> {response.status_code} "
-                    f"headers={resp_headers} "
-                    f"body={body.decode('utf-8', errors='replace')[:500]}"
-                )
-                return StarletteResponse(
-                    content=body,
-                    status_code=response.status_code,
-                    headers=resp_headers,
-                    media_type=response.media_type,
-                )
+            response: StarletteResponse = await call_next(request)
 
-            logger.info(f"RESPONSE: {request.method} {path} -> {response.status_code}")
+            logger.info(
+                "RESPONSE: %s %s -> %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+
             return response
 
     app.add_middleware(RequestLoggingMiddleware)

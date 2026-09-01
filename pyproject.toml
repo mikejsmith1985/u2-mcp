@@ -38,6 +38,9 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "hypothesis>=6.100.0",
+    "bandit>=1.7.0",
+    "pip-audit>=2.7.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
@@ -67,9 +70,13 @@ warn_return_any = true
 disallow_untyped_defs = true
 # Relax checks for third-party libraries without type stubs
 ignore_missing_imports = true
-# FastMCP decorators and pydantic validators don't have full type annotations
-# call-arg disabled because pydantic-settings loads values from env vars at runtime
+# FastMCP decorators and pydantic validators don't have full type annotations.
+# call-arg is disabled because pydantic-settings loads values from env vars at
+# runtime. Nothing else is suppressed: `mypy src/` is clean, and CI enforces it.
 disable_error_code = ["misc", "untyped-decorator", "call-arg"]
+strict_equality = true
+warn_unused_ignores = true
+warn_redundant_casts = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

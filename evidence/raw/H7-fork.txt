@@ -1,0 +1,31 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: C:\ProjectsWin\u2-mcp
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 20 items
+
+tests/test_registry.py::TestSharedMode::test_all_callers_share_one_connection PASSED [  5%]
+tests/test_registry.py::TestSharedMode::test_the_shared_login_is_marked_shared PASSED [ 10%]
+tests/test_registry.py::TestMappedMode::test_each_caller_gets_their_own_connection PASSED [ 15%]
+tests/test_registry.py::TestMappedMode::test_the_database_receives_the_callers_own_login PASSED [ 20%]
+tests/test_registry.py::TestMappedMode::test_the_same_caller_reuses_their_connection PASSED [ 25%]
+tests/test_registry.py::TestMappedMode::test_an_unmapped_caller_is_refused PASSED [ 30%]
+tests/test_registry.py::TestCurrentCaller::test_current_follows_the_caller_in_scope PASSED [ 35%]
+tests/test_registry.py::TestRegistryOperations::test_disconnect_all_clears_every_slot PASSED [ 40%]
+tests/test_identity.py::TestCallerIdentity::test_without_authentication_the_caller_is_local PASSED [ 45%]
+tests/test_identity.py::TestCallerIdentity::test_a_resolved_caller_is_used PASSED [ 50%]
+tests/test_identity.py::TestCallerIdentity::test_caller_can_be_scoped_to_a_block PASSED [ 55%]
+tests/test_identity.py::TestCallerIdentity::test_identity_key_distinguishes_users PASSED [ 60%]
+tests/test_identity.py::TestCallerIdentity::test_display_name_prefers_something_a_human_recognises PASSED [ 65%]
+tests/test_identity.py::TestSharedCredentials::test_every_caller_gets_the_configured_account PASSED [ 70%]
+tests/test_identity.py::TestSharedCredentials::test_shared_credentials_declare_that_they_are_shared PASSED [ 75%]
+tests/test_identity.py::TestMappedCredentials::test_mapped_caller_gets_their_own_login PASSED [ 80%]
+tests/test_identity.py::TestMappedCredentials::test_unmapped_caller_is_refused PASSED [ 85%]
+tests/test_identity.py::TestMappedCredentials::test_missing_map_is_refused_at_startup PASSED [ 90%]
+tests/test_identity.py::TestResolverSelection::test_shared_is_the_default PASSED [ 95%]
+tests/test_identity.py::TestResolverSelection::test_unknown_mode_is_refused PASSED [100%]
+
+============================= 20 passed in 0.46s ==============================

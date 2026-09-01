@@ -1,0 +1,17 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\ProjectsWin\u2-mcp\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: C:\ProjectsWin\u2-mcp
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hypothesis-6.165.10, asyncio-1.4.0, cov-7.1.0, mock-3.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 6 items
+
+tests/test_utils/test_audit.py::TestAttribution::test_record_names_the_authenticated_user PASSED [ 16%]
+tests/test_utils/test_audit.py::TestAttribution::test_record_carries_a_readable_name_and_email PASSED [ 33%]
+tests/test_utils/test_audit.py::TestAttribution::test_record_names_the_client_that_presented_the_token PASSED [ 50%]
+tests/test_utils/test_audit.py::TestAttribution::test_unauthenticated_use_is_recorded_as_such PASSED [ 66%]
+tests/test_utils/test_audit.py::TestDatabaseLoginRecording::test_the_login_used_is_recorded PASSED [ 83%]
+tests/test_utils/test_audit.py::TestDatabaseLoginRecording::test_a_shared_login_is_flagged_on_every_record PASSED [100%]
+
+============================== 6 passed in 0.42s ==============================

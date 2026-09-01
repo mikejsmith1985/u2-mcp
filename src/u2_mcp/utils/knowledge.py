@@ -14,6 +14,13 @@ from typing import Any
 # Default knowledge file location
 DEFAULT_KNOWLEDGE_PATH = Path.home() / ".u2-mcp" / "knowledge.md"
 
+# Every character a markdown reader treats as a line break, including the two
+# Unicode separators, so a topic name cannot smuggle a second header past us.
+_LINE_BREAKS = re.compile("[\r\n  \v\f\x85]+")
+
+# A line that starts a markdown section, captured so it can be escaped in place.
+_LEADING_HEADER = re.compile(r"^([ \t]*)(#{1,6})([ \t])", re.MULTILINE)
+
 
 class KnowledgeStore:
     """Manages persistent knowledge about the Universe database."""
@@ -30,11 +37,30 @@ class KnowledgeStore:
     def _normalize_topic(self, topic: str) -> str:
         """Normalize a topic name for consistent matching.
 
-        Removes leading ## prefix, strips whitespace, and normalizes case.
+        Removes any leading hashes and collapses the name onto a single line. A
+        topic becomes a markdown header, so a name containing a line break could
+        otherwise write a second header and forge a topic nobody saved.
         """
-        # Remove leading ## if present
         topic = re.sub(r"^#+\s*", "", topic.strip())
-        return topic.strip()
+        topic = _LINE_BREAKS.sub(" ", topic)
+        return re.sub(r"\s{2,}", " ", topic).strip()
+
+    @staticmethod
+    def _neutralize_headers(content: str) -> str:
+        """Stop saved content from forging or overwriting another topic.
+
+        Content is written verbatim beneath its header, so a line beginning with
+        hashes would start a new section and silently create -- or replace -- a
+        topic the caller never named. Those lines are escaped, so they still read
+        naturally while no longer being structural.
+
+        Args:
+            content: The knowledge text to save
+
+        Returns:
+            Content that cannot alter the file's structure
+        """
+        return _LEADING_HEADER.sub(r"\1\\\2\3", content)
 
     def _find_similar_topic(self, topic: str) -> str | None:
         """Find an existing topic that matches or is similar to the given topic.
@@ -198,7 +224,8 @@ class KnowledgeStore:
                 break
 
         # Format the new content
-        formatted_content = f"## {topic}\n\n*Updated: {timestamp}*\n\n{content.strip()}\n"
+        safe_content = self._neutralize_headers(content.strip())
+        formatted_content = f"## {topic}\n\n*Updated: {timestamp}*\n\n{safe_content}\n"
 
         if topic_idx is not None:
             # Topic exists - find its end

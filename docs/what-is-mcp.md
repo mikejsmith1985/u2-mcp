@@ -208,7 +208,7 @@ u2-mcp connects to your database with the credentials you provide. It can:
 
 ### Built-in Safety Features
 
-- **Read-only mode** - Prevents all write operations
+- **Read-only mode** - Refuses every tool that can change the database: writes, deletes, transactions, and subroutine calls. A cataloged subroutine is arbitrary BASIC, so it is refused on the grounds that nothing can tell in advance whether it writes
 - **Command blocking** - Dangerous commands like `DELETE.FILE` are blocked
 - **Query validation** - Only safe query commands are allowed
 - **Confirmation required** - Write and delete operations require explicit confirmation

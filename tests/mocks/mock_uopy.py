@@ -1,173 +1,217 @@
 """Mock implementations of uopy objects for testing.
 
-These mocks simulate the behavior of Rocket's uopy package without
-requiring an actual Universe/UniData server connection.
+These mocks simulate Rocket's `uopy` package without requiring a live
+Universe/UniData server. They deliberately mirror the *current* uopy 1.4 API
+that `u2_mcp` calls -- constructor-style objects (`uopy.File(name, session=...)`,
+`uopy.Command(text, session=...)`) rather than the older session-factory style --
+so a test that passes here means the production code path really works.
+
+Install them with the `mock_uopy` fixture in conftest.py.
 """
 
-from collections.abc import Iterator
+from typing import Any
+
+
+class UOError(Exception):
+    """Stand-in for `uopy.UOError`."""
+
+    pass
 
 
 class MockFile:
-    """Mock Universe file object."""
+    """Mock Universe file handle, created as `uopy.File(name, session=...)`."""
 
-    def __init__(self, records: dict[str, str] | None = None) -> None:
-        self._records: dict[str, str] = records or {}
+    def __init__(self, name: str = "", session: Any = None, records: dict[str, str] | None = None):
+        """Open a mock file, raising UOError if the session says it does not exist."""
+        self.name = name
+        self.session = session
+        # A session may pre-seed records, and may declare a file missing.
+        if session is not None and hasattr(session, "_files"):
+            if name in getattr(session, "_missing_files", set()):
+                raise UOError(f"File '{name}' not found")
+            self._records: dict[str, str] = session._files.setdefault(name, {})
+        else:
+            self._records = records if records is not None else {}
+        self.is_open = True
 
-    def read(self, record_id: str) -> str | None:
-        """Read a record by ID."""
-        return self._records.get(record_id)
+    def read(self, record_id: str) -> str:
+        """Read a record's raw data, raising UOError when the key is absent."""
+        if record_id not in self._records:
+            raise UOError(f"Record '{record_id}' not found in '{self.name}'")
+        return self._records[record_id]
 
-    def write(self, record_id: str, data: str) -> None:
-        """Write a record."""
-        self._records[record_id] = data
+    def write(self, record_id: str, data: Any) -> None:
+        """Write raw record data under the given key."""
+        self._records[record_id] = str(data)
 
     def delete(self, record_id: str) -> None:
-        """Delete a record."""
-        self._records.pop(record_id, None)
+        """Delete a record, raising UOError when the key is absent."""
+        if record_id not in self._records:
+            raise UOError(f"Record '{record_id}' not found in '{self.name}'")
+        del self._records[record_id]
 
-    def add_record(self, record_id: str, data: str) -> None:
-        """Helper to add test records."""
-        self._records[record_id] = data
+    def close(self) -> None:
+        """Close the file handle."""
+        self.is_open = False
 
 
 class MockCommand:
-    """Mock TCL command object."""
+    """Mock TCL command, created as `uopy.Command(text, session=...)`."""
 
-    def __init__(self, responses: dict[str, str] | None = None) -> None:
-        self._responses: dict[str, str] = responses or {}
-        self._last_command: str = ""
-        self._response: str = ""
+    def __init__(self, command_text: str = "", session: Any = None):
+        """Prepare a command; the session supplies canned responses."""
+        self.command_text = command_text
+        self.session = session
+        self.response: str = ""
+        self.status: int = 0
 
-    def exec(self, command: str) -> None:
-        """Execute a command."""
-        self._last_command = command
+    def run(self) -> None:
+        """Execute the command, recording it on the session and setting a response."""
+        session = self.session
+        if session is not None:
+            session.executed_commands.append(self.command_text)
+            if session.command_error is not None:
+                raise session.command_error
+            if session.command_delay_seconds:
+                import time
 
-        # Check for predefined responses
-        for pattern, response in self._responses.items():
-            if pattern.upper() in command.upper():
-                self._response = response
-                return
-
-        # Default responses based on command type
-        cmd_upper = command.upper()
-        if cmd_upper.startswith("WHO"):
-            self._response = "User: test-user  Account: TEST"
-        elif cmd_upper.startswith("DATE"):
-            self._response = "12/17/2024"
-        elif cmd_upper.startswith("TIME"):
-            self._response = "10:30:00"
-        elif cmd_upper.startswith("LISTFILES"):
-            self._response = "CUSTOMERS\nORDERS\nPRODUCTS\n3 files listed."
-        elif cmd_upper.startswith("FILE.STAT"):
-            self._response = "File Type: Dynamic\nModulo: 101\nSeparation: 2\nRecord Count: 500"
-        elif cmd_upper.startswith("LIST") or cmd_upper.startswith("SORT"):
-            self._response = "ID001  Value1  Value2\nID002  Value3  Value4\n2 records listed."
-        elif cmd_upper.startswith("COUNT"):
-            self._response = "5 records counted."
-        else:
-            self._response = f"Command executed: {command}"
-
-    @property
-    def response(self) -> str:
-        """Get command response."""
-        return self._response
+                time.sleep(session.command_delay_seconds)
+            for pattern, canned in session.command_responses.items():
+                if pattern.upper() in self.command_text.upper():
+                    self.response = canned
+                    return
+        self.response = _default_response(self.command_text)
 
 
-class MockSelect:
-    """Mock SELECT list iterator."""
+def _default_response(command_text: str) -> str:
+    """Return a plausible Universe response for common commands."""
+    upper = command_text.upper()
+    if upper.startswith("WHO"):
+        return "1 test-user TEST"
+    if upper.startswith("LISTFILES") or upper.startswith("LIST.FILE"):
+        return "CUSTOMERS\nORDERS\nPRODUCTS\n3 files listed."
+    if upper.startswith("FILE.STAT"):
+        return "File name ..... CUSTOMERS\nNumber of records ..... 500"
+    if upper.startswith("COUNT"):
+        return "5 records counted."
+    if upper.startswith("LIST") or upper.startswith("SORT"):
+        return "ID001 Value1\nID002 Value2\n2 records listed."
+    if upper.startswith("SELECT") or upper.startswith("SSELECT"):
+        return "3 records selected to list 0."
+    return f"Command executed: {command_text}"
 
-    def __init__(self, record_ids: list[str] | None = None) -> None:
-        self._record_ids: list[str] = record_ids or []
-        self._executed: bool = False
 
-    def exec(self, query: str) -> None:
-        """Execute a SELECT query."""
-        self._executed = True
-        # If no records set, provide some defaults
-        if not self._record_ids:
-            self._record_ids = ["ID001", "ID002", "ID003"]
+class MockList:
+    """Mock select list, created as `uopy.List(session=...)`."""
 
-    def __iter__(self) -> Iterator[str]:
-        """Iterate over selected record IDs."""
-        return iter(self._record_ids)
+    def __init__(self, session: Any = None, list_no: int = 0):
+        """Create a select list backed by the session's pending record ids."""
+        self.session = session
+        self.list_no = list_no
+        pending = list(getattr(session, "select_list", [])) if session is not None else []
+        self._pending: list[str] = pending
+        self._index = 0
+
+    def next(self) -> str | None:
+        """Return the next record id, or None when the list is exhausted."""
+        if self._index >= len(self._pending):
+            return None
+        value = self._pending[self._index]
+        self._index += 1
+        return value
 
 
 class MockSubroutine:
-    """Mock BASIC subroutine object."""
+    """Mock BASIC subroutine, created as `uopy.Subroutine(name, n, session=...)`."""
 
-    def __init__(self, name: str, num_args: int) -> None:
-        self._name = name
-        self._num_args = num_args
-        self._args: list[str] = [""] * num_args
+    def __init__(self, name: str = "", num_args: int = 0, session: Any = None):
+        """Prepare a subroutine call with `num_args` argument slots."""
+        self.name = name
+        self.num_args = num_args
+        self.session = session
+        self.args: list[str] = [""] * num_args
 
-    @property
-    def args(self) -> list[str]:
-        """Get/set subroutine arguments."""
-        return self._args
+    def set_arg(self, index: int, value: Any) -> None:
+        """Set an input argument by position."""
+        if index >= len(self.args):
+            raise UOError(f"Argument index {index} is out of range for '{self.name}'")
+        self.args[index] = str(value)
+
+    def get_arg(self, index: int) -> str:
+        """Read an argument back after the call."""
+        if index >= len(self.args):
+            raise UOError(f"Argument index {index} is out of range for '{self.name}'")
+        return self.args[index]
 
     def call(self) -> None:
-        """Execute the subroutine."""
-        # Simulate a subroutine that echoes args with prefix
-        for i in range(len(self._args)):
-            if self._args[i]:
-                self._args[i] = f"RESULT:{self._args[i]}"
+        """Execute the subroutine, prefixing each non-empty argument with RESULT:."""
+        if self.session is not None:
+            self.session.called_subroutines.append((self.name, list(self.args)))
+            if self.session.subroutine_error is not None:
+                raise self.session.subroutine_error
+        for i, value in enumerate(self.args):
+            if value:
+                self.args[i] = f"RESULT:{value}"
 
 
 class MockSession:
-    """Mock uopy session object."""
+    """Mock uopy session returned by `uopy.connect(...)`.
 
-    def __init__(self) -> None:
-        self._files: dict[str, MockFile] = {}
-        self._command = MockCommand()
-        self._select = MockSelect()
-        self._connected = True
-        self._in_transaction = False
+    Test helpers let a test declare exactly what the fake server should do:
+    seeded records, canned command output, a select list, or a raised error.
+    """
 
-    def open(self, file_name: str) -> MockFile:
-        """Open a file."""
-        if file_name not in self._files:
-            self._files[file_name] = MockFile()
-        return self._files[file_name]
+    def __init__(self, **connect_kwargs: Any):
+        """Create an active session, remembering the connect arguments."""
+        self.connect_kwargs = connect_kwargs
+        self.is_active: bool = True
+        self.executed_commands: list[str] = []
+        self.command_responses: dict[str, str] = {}
+        self.command_error: Exception | None = None
+        self.command_delay_seconds: float = 0.0
+        self.subroutine_error: Exception | None = None
+        self.called_subroutines: list[tuple[str, list[str]]] = []
+        self.select_list: list[str] = []
+        self.in_transaction: bool = False
+        self.transaction_log: list[str] = []
+        self._files: dict[str, dict[str, str]] = {}
+        self._missing_files: set[str] = set()
 
-    def command(self) -> MockCommand:
-        """Get command object."""
-        return self._command
+    # -- production API -----------------------------------------------------
 
-    def select(self) -> MockSelect:
-        """Get select object."""
-        return MockSelect()
+    def close(self) -> None:
+        """Close the session."""
+        self.is_active = False
 
-    def subroutine(self, name: str, num_args: int) -> MockSubroutine:
-        """Create subroutine object."""
-        return MockSubroutine(name, num_args)
+    def tx_start(self) -> None:
+        """Begin a transaction."""
+        self.in_transaction = True
+        self.transaction_log.append("start")
 
-    def disconnect(self) -> None:
-        """Disconnect from server."""
-        self._connected = False
+    def tx_commit(self) -> None:
+        """Commit the current transaction."""
+        self.in_transaction = False
+        self.transaction_log.append("commit")
 
-    def transaction_start(self) -> None:
-        """Start a transaction."""
-        self._in_transaction = True
+    def tx_rollback(self) -> None:
+        """Roll back the current transaction."""
+        self.in_transaction = False
+        self.transaction_log.append("rollback")
 
-    def transaction_commit(self) -> None:
-        """Commit transaction."""
-        self._in_transaction = False
+    # -- test helpers -------------------------------------------------------
 
-    def transaction_rollback(self) -> None:
-        """Rollback transaction."""
-        self._in_transaction = False
+    def add_file(self, file_name: str, records: dict[str, str] | None = None) -> None:
+        """Seed a file with records so `uopy.File` can read them."""
+        self._files[file_name] = dict(records or {})
 
-    def add_file(self, file_name: str, records: dict[str, str]) -> None:
-        """Helper to add test file with records."""
-        self._files[file_name] = MockFile(records)
+    def set_missing_file(self, file_name: str) -> None:
+        """Declare a file that should fail to open."""
+        self._missing_files.add(file_name)
 
     def set_command_responses(self, responses: dict[str, str]) -> None:
-        """Helper to set command responses."""
-        self._command._responses = responses
+        """Set substring-matched canned responses for TCL commands."""
+        self.command_responses = responses
 
-
-# Mock UOError exception
-class UOError(Exception):
-    """Mock uopy error."""
-
-    pass
+    def set_select_list(self, record_ids: list[str]) -> None:
+        """Set the record ids a `uopy.List` will hand back."""
+        self.select_list = list(record_ids)
