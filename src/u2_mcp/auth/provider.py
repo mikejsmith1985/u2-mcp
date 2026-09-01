@@ -83,7 +83,12 @@ def _require_client_id(client: OAuthClientInformationFull) -> str:
             error="invalid_client",
             error_description="The client presented no client_id",
         )
-    return client.client_id
+    # The client model comes from a third-party library with no type
+    # information, so the guard above proves the id is present but not that it
+    # is a string. Converting explicitly is the difference between checking a
+    # type and assuming one — and this value goes into an audit record naming
+    # who acted, where a silently wrong type would be discovered much later.
+    return str(client.client_id)
 
 
 class U2OAuthProvider(
